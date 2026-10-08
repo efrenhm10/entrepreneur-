@@ -45,7 +45,12 @@ G.finance = (function () {
     const gross = wages + y.gig + bizIncome + y.other;
     const agi = gross - se / 2;
     const qbiBase = Math.max(0, bizIncome - se / 2) + Math.max(0, y.gig * 0.7);
-    const preQbi = Math.max(0, agi - STD_DED);
+    // Charitable gifts: itemize when it beats the standard deduction (2026 rules:
+    // 0.5%-of-AGI floor, 60% of AGI cap, $40k SALT cap); non-itemizers get up to $1,000.
+    const don = y.donations || 0;
+    const itemized = Math.min(Math.max(0, don - agi * 0.005), agi * 0.6) + Math.min(40000, stateTax(s.loc.state, Math.max(0, agi - 5000)));
+    const deduction = Math.max(STD_DED + Math.min(1000, don), itemized);
+    const preQbi = Math.max(0, agi - deduction);
     const qbi = Math.min(qbiBase * 0.2, preQbi * 0.2);
     const taxable = Math.max(0, preQbi - qbi);
     const fed = fedTax(taxable);
@@ -55,7 +60,7 @@ G.finance = (function () {
     const capTax = cap > 0 ? cap * (taxable + cap > 545500 ? 0.2 : 0.15) + stateTax(s.loc.state, cap) : 0;
     const total = fed + state + se + gigSe + y.penalty + capTax;
     const paid = y.withheld + y.est;
-    return { wages, gig: y.gig, biz: bizIncome, other: y.other, cap, capTax, se: se + gigSe, agi, qbi, taxable, fed, state: state, penalty: y.penalty, total, paid, due: total - paid };
+    return { wages, gig: y.gig, biz: bizIncome, other: y.other, cap, capTax, donations: don, itemized: itemized > STD_DED + Math.min(1000, don), se: se + gigSe, agi, qbi, taxable, fed, state: state, penalty: y.penalty, total, paid, due: total - paid };
   }
 
   // Weekly withholding on a W-2 paycheck (income tax + FICA).

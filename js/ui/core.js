@@ -156,7 +156,7 @@ G.ui = (function () {
     const hot = globalThis.claude && globalThis.claude.hot;
     if (hot && hot.snapshot) hot.snapshot(() => ({ s: ui.s, screen: ui.screen, tab: ui.tab }));
     const start = (data) => {
-      if (data && data.s) { ui.s = data.s; ui.screen = data.screen || 'game'; ui.tab = data.tab || 'overview'; }
+      if (data && data.s) { ui.s = G.state.migrate(data.s); ui.screen = data.screen || 'game'; ui.tab = data.tab || 'overview'; }
       ui.render();
     };
     if (hot && hot.ready) hot.ready(start); else start(hot && hot.data);

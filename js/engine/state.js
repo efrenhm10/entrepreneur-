@@ -64,7 +64,7 @@ G.state = (function () {
       course: null,
       rel: { status: cfg.relationship || 'single', partner: partnered ? G.randName().split(' ')[0] : null, patience: 72, income: 0 },
       kids: cfg.kids || 0,
-      ytd: { wages: 0, withheld: 0, gig: 0, biz: 0, est: 0, other: 0, penalty: 0, corpSalary: 0, capgain: 0 },
+      ytd: { wages: 0, withheld: 0, gig: 0, biz: 0, est: 0, other: 0, penalty: 0, corpSalary: 0, capgain: 0, donations: 0 },
       taxYear: 2026, lastReturn: null, estimates: false,
       weeksSelfEmployed: 0, burnoutWeeks: 0, sickWeeks: 0,
     };
@@ -79,7 +79,9 @@ G.state = (function () {
       journal: [], hist: [], pending: [], event: null, eventQueue: [], flags: {},
       stats: { peakNW: 0, jobsCreated: 0, customers: 0, revenue: 0, bizStarted: 0, bestRating: 0, weeksOwner: 0 },
       jobBoard: [], lastReport: null, ended: false,
+      holdings: [], hmarket: [],
     };
+    G.give.ensure(s);
     if (cfg.jobId) {
       const j = G.jobs.byId[cfg.jobId];
       if (j && G.jobs.qualifies(p, j)) G.life.takeJob(s, j, 26);
@@ -111,6 +113,7 @@ G.state = (function () {
     p.debts.forEach((d) => { nw -= d.bal; });
     if (s.biz && s.biz.phase !== 'closed') nw += G.biz.equityValue(s, s.biz);
     if (p.transport === 'car') nw += 5000;
+    if (s.holdings && s.holdings.length) nw += G.hold.totalValue(s);
     return nw;
   }
 
@@ -136,7 +139,14 @@ G.state = (function () {
   function load(slot = 'auto') {
     const ls = store();
     if (!ls) return null;
-    try { const raw = ls.getItem(SAVE_PREFIX + slot); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
+    try { const raw = ls.getItem(SAVE_PREFIX + slot); return raw ? migrate(JSON.parse(raw)) : null; } catch (e) { return null; }
+  }
+  // Fill in fields added after a save was made.
+  function migrate(s) {
+    if (!s) return s;
+    G.hold.ensure(s);
+    G.give.ensure(s);
+    return s;
   }
   function meta(slot) {
     const ls = store();
@@ -150,7 +160,7 @@ G.state = (function () {
     try { const h = hallOfFame(); h.push(entry); h.sort((a, b) => b.score - a.score); ls.setItem(SAVE_PREFIX + 'hof', JSON.stringify(h.slice(0, 20))); } catch (e) { /* ignore */ }
   }
 
-  return { newGame, tpl, age, netWorth, recordHistory, save, load, meta, remove, hallOfFame, addToHall, baseSkills, pointPool };
+  return { newGame, tpl, age, netWorth, recordHistory, save, load, migrate, meta, remove, hallOfFame, addToHall, baseSkills, pointPool };
 })();
 
 G.journal = {

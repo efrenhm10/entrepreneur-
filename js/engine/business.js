@@ -305,7 +305,8 @@ G.biz = G.biz || {};
     const p = s.p, t = tplOf(s, b), L = s.loc;
     const m = U.monthOf(s.week);
     const prod = r.prod;
-    let F = p.schedule.biz * prod;
+    // Portfolio companies take their oversight hours off the top.
+    let F = Math.max(0, p.schedule.biz * prod - (G.hold ? G.hold.oversightHours(s) : 0));
     if (b.phase === 'open') {
       const admin = b.bookkeeper ? 0 : 1 + b.staff.length * 0.4;
       F = Math.max(0, F - admin);

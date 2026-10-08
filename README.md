@@ -21,6 +21,8 @@ For a local server instead: `python3 -m http.server` and visit http://localhost:
 - **A real launch checklist.** Entity registration, EIN, licenses with processing times, leases you personally guarantee, build-outs, equipment, inventory, insurance, and the actual work of building the product.
 - **Two wallets.** Personal and business accounts, credit score, credit cards, student loans, SBA 7(a) and microloans, equipment financing, USDA farm loans, revenue-based financing, hard money, crowdfunding, grants, angels and VCs (with board pressure).
 - **Taxes that bite.** Federal brackets, state tax, self-employment tax, the QBI deduction, quarterly estimates, underpayment penalties, S-corp and C-corp options, capital gains when you sell.
+- **Buy other companies.** Once you are big enough, a deal marketplace lists businesses for sale in any industry, from Main Street shops to middle-market companies. Pay for due diligence or risk inflated earnings, finance with SBA or seller notes, put a GM in charge or run it yourself, reinvest, and sell.
+- **Give it away.** Donate to nine causes with real-world impact rates, earn naming rights on $1M gifts, join nonprofit boards, and endow a private foundation that must pay out 5% a year. Gifts are deductible under the 2026 itemizing rules.
 - **Life happens.** Health insurance (lose it when you quit), hospital bills, relationships that need your time, kids, car trouble, recessions, Fed rate moves, hurricanes, lawsuits, inspections, poached employees, viral moments and acquisition offers.
 - **A written story.** A journal records your life as it happens, and your legacy is scored against the reason you chose at the start.
 

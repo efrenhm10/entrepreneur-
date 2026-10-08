@@ -4,7 +4,7 @@ var G = globalThis.G || (globalThis.G = {});
 G.uiGame = (function () {
   const U = G.util, esc = U.esc, ui = G.ui, M = (n, o) => U.money(n, o);
   const TABS = [
-    ['overview', 'Overview'], ['plan', 'Week plan'], ['business', 'Business'], ['money', 'Money'],
+    ['overview', 'Overview'], ['plan', 'Week plan'], ['business', 'Business'], ['deals', 'Acquisitions'], ['money', 'Money'], ['giving', 'Giving'],
     ['career', 'Career & learning'], ['life', 'Life'], ['city', 'City & economy'], ['journal', 'Journal'],
   ];
   const v = () => ui.view;
@@ -45,6 +45,9 @@ G.uiGame = (function () {
         if (t.engine === 'projects' && !b.projects.length && !b.listings.length) out.push(['info', 'No project in progress. Start your next one.', 'business']);
       }
     } else if (s.ideaId || s.customTpl) out.push(['info', 'Your idea is waiting. Start setting up the business when you are ready.', 'business']);
+    if (s.holdings && s.holdings.length && G.hold.oversightHours(s) > p.schedule.biz * G.life.productivity(s)) out.push(['warn', `Your companies need ${G.hold.oversightHours(s)} hours of oversight a week. Hire managers or plan more business hours.`, 'deals']);
+    if (s.holdings && s.holdings.some((h) => h.health < 40)) out.push(['warn', 'One of your companies is in poor health.', 'deals']);
+    if (!s.flags.sawDeals && G.hold.unlocked(s)) out.push(['good', 'You are big enough to buy other companies now, in any industry.', 'deals']);
     const ret = G.finance.computeReturn(s, p.ytd);
     if (ret.due > 3000 && !p.estimates) out.push(['warn', `You will owe about ${M(ret.due)} in taxes for ${U.yearOf(s.week)}. Consider quarterly payments.`, 'money']);
     return out;
@@ -75,7 +78,7 @@ G.uiGame = (function () {
     if (!s) return '';
     if (s.ended) return header(s) + `<div class="shell"><div></div><main class="main">${legacyPage(s)}</main></div>`;
     const al = alerts(s);
-    const tabs = { overview, plan, business, money, career, life, city, journal };
+    const tabs = { overview, plan, business, deals, money, giving, career, life, city, journal };
     return header(s) + `<div class="shell">
       <nav class="nav" aria-label="Sections">${TABS.map(([id, n]) => {
         const c = al.filter((a) => a[2] === id && a[0] !== 'info' && a[0] !== 'good').length;
@@ -464,6 +467,88 @@ G.uiGame = (function () {
     <div class="card stack"><h3>Save</h3><div class="row">${[1, 2, 3].map((n) => ui.btn(`Save to slot ${n}`, 'saveSlot', 'slot' + n, 'btn-s')).join('')}${ui.btn('Copy save text', 'exportSave', '', 'btn-s')}</div><p class="tiny faint">The game also autosaves every week in this browser.</p></div>`;
   }
 
+  // ---------- Acquisitions ----------
+  function deals(s) {
+    const H = G.hold;
+    H.ensure(s);
+    if (!H.unlocked(s)) {
+      return `<div class="page-head"><div><h2>Acquisitions</h2><p>Buy existing companies in any industry and build a portfolio.</p></div></div>
+      <div class="card stack"><div class="row">${ui.pill('Locked', 'warn')}<b>${esc(H.unlockText)}</b></div>
+        <p class="muted">Most small businesses in America change hands when an owner retires. Buying one means revenue from day one, but also someone else's problems. Grow your net worth to get a seat at the table.</p>
+        <div class="grid g3">${ui.kpi('Your net worth', M(G.state.netWorth(s)))}${ui.kpi('Needed', M(250000))}</div></div>`;
+    }
+    H.refreshMarket(s);
+    const owned = s.holdings;
+    const oversight = H.oversightHours(s);
+    const totalProfit = U.sum(owned, (h) => h.lastProfit);
+    const nextRefresh = 8 - (s.week - s.flags.hmarketWeek);
+    return `<div class="page-head"><div><h2>Acquisitions</h2><p>Buy companies in any industry. Profits flow to you as pass-through income. Each one needs a manager, or your time.</p></div></div>
+    ${owned.length ? `<div class="card"><div class="grid g4">${ui.kpi('Companies owned', String(owned.length))}${ui.kpi('Portfolio value', M(H.totalValue(s), { short: true }))}${ui.kpi('Portfolio profit last week', ui.signed(totalProfit))}${ui.kpi('Your oversight', oversight + 'h/week', s.p.schedule.biz * G.life.productivity(s) < oversight ? '<span class="neg">More than your business hours</span>' : 'Taken from your business hours')}</div></div>
+    <div class="stack">${owned.map((h) => holdingCard(s, h)).join('')}</div>` : ''}
+    <div class="card"><div class="card-head"><h3>For sale</h3><span class="small muted">New listings in ${Math.max(1, nextRefresh)} week${nextRefresh === 1 ? '' : 's'}</span></div>
+      <div class="stack">${s.hmarket.map((d) => dealCard(s, d)).join('')}</div>
+      <p class="tiny faint" style="margin-top:10px">Listings show the seller's numbers. Due diligence (a quality-of-earnings review) tells you what is real. Bigger deals appear as your net worth grows.</p>
+    </div>`;
+  }
+
+  function dealCard(s, d) {
+    const t = G.BIZ[d.tid];
+    const fin = G.hold.financing(s, d);
+    const size = G.hold.SIZES.find((z) => z.id === d.size);
+    const dd = d.dd;
+    const sde = dd && dd.state === 'done' ? dd.trueSde : d.sde;
+    const mult = d.price / Math.max(1, sde);
+    const sameCat = s.biz && G.state.tpl(s) && G.state.tpl(s).cat === d.cat;
+    return `<div class="card pad-s stack" style="gap:8px">
+      <div class="row between"><div><b>${esc(d.name)}</b> <span class="muted small">${esc(t.name)} · ${esc(d.city)}, ${esc(d.state)} · ${d.years} years old</span></div><div class="row">${ui.pill(size.label, 'info')}${sameCat ? ui.pill('Synergy with your business', 'good') : ui.pill(G.CATEGORIES[d.cat])}</div></div>
+      <div class="grid g4">${ui.kpi('Asking price', M(d.price, { short: true }))}${ui.kpi('Revenue', M(d.rev, { short: true }), 'per year')}${ui.kpi(dd && dd.state === 'done' ? 'Verified earnings' : 'Seller-reported earnings', M(sde, { short: true }), `${mult.toFixed(1)}× multiple`)}${ui.kpi('Growth', (d.growth * 100).toFixed(1) + '%', 'per year')}</div>
+      <div class="small">${d.notes.map((n) => `<span class="muted">• ${esc(n)}</span>`).join('&nbsp; ')}</div>
+      ${dd ? `<div class="alert ${dd.state === 'running' ? 'info' : d.truth < 0.85 ? 'bad' : 'good'} small">${dd.state === 'running' ? `Due diligence in progress: ${dd.left} week${dd.left === 1 ? '' : 's'} left.` : esc(dd.verdict)}</div>` : ''}
+      <div class="row">${!dd ? ui.btn(`Due diligence · ${M(Math.round(Math.max(4000, d.price * 0.012) / 500) * 500)}`, 'ddDeal', d.id, 'btn-s') : ''}
+        ${fin.map((f) => ui.btn(`${esc(f.label)} · ${M(f.down + d.price * 0.02, { short: true })} down`, 'buyDeal', d.id + ':' + f.id, f.id === 'cash' ? 'btn-s btn-go' : 'btn-s', s.p.cash < f.down + d.price * 0.02, f.note)).join('')}</div>
+    </div>`;
+  }
+
+  function holdingCard(s, h) {
+    const t = G.BIZ[h.tid];
+    const hist = h.hist.slice(-52);
+    const yr = U.sum(h.hist.slice(-52), (x) => x.profit) * 52 / Math.max(1, Math.min(52, h.hist.length));
+    return `<div class="card stack"><div class="row between"><div><h3>${esc(h.name)}</h3><span class="muted small">${esc(t.name)} · ${esc(h.city)}, ${esc(h.state)} · owned ${(h.weeks / 52).toFixed(1)} years · paid ${M(h.cost, { short: true })}</span></div>${ui.pill('Health ' + Math.round(h.health), h.health > 65 ? 'good' : h.health > 45 ? 'warn' : 'bad')}</div>
+      <div class="grid g4">${ui.kpi('Revenue run-rate', M(h.rev, { short: true }))}${ui.kpi('Profit, annualized', ui.signed(yr, { short: true }))}${ui.kpi('Value', M(G.hold.value(s, h), { short: true }))}${ui.kpi('Growth', (h.growth * 100).toFixed(1) + '%')}</div>
+      ${hist.length > 3 ? ui.chart('h_' + h.id, [{ name: 'Profit', values: hist.map((x) => x.profit), color: 'var(--road)', area: true }], hist.map((x) => x.w), { h: 90 }) : ''}
+      <div class="field"><span class="label">Who runs it</span><div class="seg">${Object.entries(G.hold.GMS).map(([k, g]) => `<button data-act="setGm" data-a="${h.id}:${k}" aria-pressed="${h.gm === k}">${esc(g.label)}${g.cost ? ` · ${M(g.cost / 1000)}k/yr` : ''}</button>`).join('')}</div><span class="tiny faint">${G.hold.GMS[h.gm].hours} hours a week of your oversight. Better managers raise health over time.</span></div>
+      <div class="row">${ui.btn(`Reinvest 5% · ${M(Math.round(h.rev * 0.05 / 1000) * 1000, { short: true })}`, 'investHold', h.id, 'btn-s')}${ui.btn('Sell', 'sellHold', h.id, 'btn-s btn-danger')}</div></div>`;
+  }
+
+  // ---------- Giving ----------
+  function giving(s) {
+    const Gv = G.give;
+    Gv.ensure(s);
+    const ph = s.phil, f = ph.foundation;
+    const sel = v().cause || 'food';
+    const amt = v().giveAmt || 500;
+    const sum = Gv.summary(s);
+    const ret = G.finance.computeReturn(s, s.p.ytd);
+    return `<div class="page-head"><div><h2>Giving</h2><p>Give back to the people and places that got you here. Gifts are tax-deductible, build your standing in the community, and count toward your legacy.</p></div></div>
+    <div class="card"><div class="grid g4">${ui.kpi('Given so far', M(ph.given))}${ui.kpi('Community standing', Math.round(ph.standing) + '/100')}${ui.kpi(`Deducted in ${U.yearOf(s.week)}`, M(s.p.ytd.donations), ret.itemized ? 'You are itemizing' : 'Standard deduction + $1k')}${f ? ui.kpi('Foundation endowment', M(f.endowment, { short: true })) : ui.kpi('Named gifts', String(ph.named.length))}</div>
+      ${ph.named.length ? `<p class="small" style="margin-top:10px">Your name is on: ${ph.named.map(esc).join(', ')}.</p>` : ''}</div>
+    <div class="card stack"><h3>Make a gift</h3>
+      <div class="grid g3">${Gv.CAUSES.map((c) => `<button class="tile" data-act="cause" data-a="${c.id}" aria-pressed="${sel === c.id}"><b>${esc(c.name)}</b><span class="small">${esc(c.blurb)}</span>${ph.causes[c.id] ? `<span class="tiny" style="color:var(--road)">${esc(Gv.impactText(c, ph.causes[c.id]))} so far</span>` : ''}</button>`).join('')}</div>
+      <div class="row"><input id="give-amt" class="input num" style="max-width:160px" type="number" min="1" step="100" value="${amt}" data-in="giveAmt">
+        ${[100, 1000, 10000, 100000, 1000000].filter((x) => x <= Math.max(1000, s.p.cash)).map((x) => ui.btn(M(x, { short: true }), 'giveQuick', String(x), 'btn-s')).join('')}
+        ${ui.btn('Give', 'give', '', 'btn-go')}</div>
+      <p class="small muted">${esc(Gv.byId[sel].name)}: ${M(amt)} is about <b>${esc(Gv.impactText(Gv.byId[sel], amt))}</b>.${amt >= 1e6 ? ' Gifts of $1M or more come with naming rights.' : ''}</p>
+    </div>
+    <div class="card stack"><h3>${f ? esc(f.name) : 'Start a private foundation'}</h3>
+      ${f ? `<div class="grid g4">${ui.kpi('Endowment', M(f.endowment))}${ui.kpi('Granted so far', M(f.granted))}${ui.kpi('You put in', M(f.contributed))}${ui.kpi('Focus', esc(Gv.byId[f.cause].name))}</div>
+        <p class="small muted">The endowment is invested and must pay out at least 5% a year. It keeps giving after you are gone.</p>
+        <div class="row">${ui.btn('Add $100k', 'fundF', '100000', 'btn-s', s.p.cash < 100000)}${ui.btn('Add $1M', 'fundF', '1000000', 'btn-s', s.p.cash < 1e6)}<select id="f-cause" class="input" style="max-width:260px" data-ch="fCause">${Gv.CAUSES.map((c) => `<option value="${c.id}" ${f.cause === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>`
+      : `<p class="muted small">A foundation turns a lump of money into giving that lasts. You get the tax deduction now; the foundation invests the money and grants at least 5% a year. Minimum ${M(Gv.FOUNDATION_MIN)}, plus about $15k in legal costs.</p>
+        <div class="row"><input id="f-name" class="input" style="max-width:280px" placeholder="The ${esc(s.p.name.split(' ').slice(-1)[0])} Family Foundation" value="${esc(v().fName || '')}" data-in="fName" maxlength="60">${ui.btn(`Endow with ${M(Gv.FOUNDATION_MIN)} for ${esc(Gv.byId[sel].name.toLowerCase())}`, 'makeF', String(Gv.FOUNDATION_MIN), 'btn-go btn-s', s.p.cash < Gv.FOUNDATION_MIN + 15000)}${ui.btn('Endow with $1M', 'makeF', '1000000', 'btn-s', s.p.cash < 1015000)}</div>`}
+    </div>
+    ${sum.length ? `<div class="card"><h3>Your impact</h3><table class="ledger" style="margin-top:8px">${sum.map((x) => `<tr><td>${esc(x.c.name)}</td><td>${esc(x.text)}</td><td class="r">${M(x.dollars)}</td></tr>`).join('')}</table></div>` : ''}`;
+  }
+
   // ---------- Career ----------
   function career(s) {
     const p = s.p;
@@ -575,7 +660,7 @@ G.uiGame = (function () {
 
   // ---------- Actions ----------
   function after() { ui.save(); }
-  ui.on('tab', (el, a) => { ui.tab = a; v().picking = false; window.scrollTo(0, 0); });
+  ui.on('tab', (el, a) => { ui.tab = a; v().picking = false; if (a === 'deals' && G.hold.unlocked(S())) S().flags.sawDeals = true; window.scrollTo(0, 0); });
   ui.on('jf', (el, a) => { v().jf = a; });
   ui.on('nextWeek', () => {
     const s = S();
@@ -773,9 +858,32 @@ G.uiGame = (function () {
     return false;
   });
 
-  function confirmBox(title, body, act) {
+  ui.on('ddDeal', (el, a) => { ui.toast(G.hold.diligence(S(), a)); after(); });
+  ui.on('buyDeal', (el, a) => {
+    const [id, how] = a.split(':');
+    const d = S().hmarket.find((x) => x.id === id);
+    if (!d) return;
+    const f = G.hold.financing(S(), d).find((x) => x.id === how);
+    ui.openModal({ html: () => confirmBox(`Buy ${d.name}?`, `${M(d.price)} total. ${f.note} You pay ${M(f.down + d.price * 0.02)} today including about 2% closing costs.${d.dd ? '' : ' You have not done due diligence.'}`, 'buyYes', id + ':' + how) });
+    return false;
+  });
+  ui.on('buyYes', (el, a) => { ui.modal = null; const [id, how] = a.split(':'); const e = G.hold.buy(S(), id, how); ui.toast(e || 'Deal closed. It is yours.'); if (!e) G.events.next(S()); after(); });
+  ui.on('setGm', (el, a) => { const [id, lv] = a.split(':'); const e = G.hold.setGm(S(), id, lv); if (e) ui.toast(e); after(); });
+  ui.on('investHold', (el, a) => { const e = G.hold.invest(S(), a); if (e) ui.toast(e); after(); });
+  ui.on('sellHold', (el, a) => { const h = S().holdings.find((x) => x.id === a); ui.openModal({ html: () => confirmBox(`Sell ${h.name}?`, `It is worth about ${M(G.hold.value(S(), h))} right now. Brokers and bankers take their cut, and gains are taxed in April.`, 'sellHoldYes', a) }); return false; });
+  ui.on('sellHoldYes', (el, a) => { ui.modal = null; ui.toast(G.hold.sell(S(), a)); after(); });
+  ui.on('cause', (el, a) => { v().cause = a; });
+  ui.on('giveAmt', (el) => { v().giveAmt = Math.max(0, +el.value); return false; });
+  ui.on('giveQuick', (el, a) => { v().giveAmt = +a; });
+  ui.on('give', () => { ui.toast(G.give.donate(S(), v().cause || 'food', v().giveAmt || 500)); G.events.next(S()); after(); });
+  ui.on('fName', (el) => { v().fName = el.value; return false; });
+  ui.on('makeF', (el, a) => { const e = G.give.createFoundation(S(), (v().fName || '').trim() || null, v().cause || 'food', +a); ui.toast(e || 'Foundation established.'); after(); });
+  ui.on('fundF', (el, a) => { const e = G.give.fund(S(), +a); if (e) ui.toast(e); after(); });
+  ui.on('fCause', (el) => { S().phil.foundation.cause = el.value; after(); });
+
+  function confirmBox(title, body, act, arg) {
     return `<div class="overlay"><div class="modal" role="dialog" aria-modal="true"><div class="modal-top"><h3>${esc(title)}</h3></div><div class="modal-body"><p>${esc(body)}</p></div>
-      <div class="modal-foot"><button class="btn" data-act="closeModal">Cancel</button><button class="btn btn-danger" data-act="${act}">Yes, do it</button></div></div></div>`;
+      <div class="modal-foot"><button class="btn" data-act="closeModal">Cancel</button><button class="btn btn-danger" data-act="${act}" data-a="${esc(arg || '')}">Yes, do it</button></div></div></div>`;
   }
 
   return { render, modal, alerts };

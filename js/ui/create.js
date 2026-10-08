@@ -53,7 +53,7 @@ G.uiTitle = (function () {
   });
   ui.on('importDo', () => {
     try {
-      const s = JSON.parse(document.getElementById('import-text').value);
+      const s = G.state.migrate(JSON.parse(document.getElementById('import-text').value));
       if (!s || !s.p || !s.loc) throw new Error('bad');
       ui.s = s; ui.modal = null; G.state.save(s, 'auto'); ui.go('game', 'overview');
     } catch (e) { ui.toast('That does not look like a Self Made save.'); }

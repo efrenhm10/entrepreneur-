@@ -196,6 +196,24 @@ G.events = (function () {
     },
   };
 
+  E.boardseat = {
+    kind: 'life', title: 'A seat on the board',
+    text: () => 'After your gifts, a respected local nonprofit asks you to join its board of directors. Meetings, fundraising dinners, and real influence over how the money is spent.',
+    choices: () => [
+      { label: 'Accept', hint: 'About 3 hours a week of networking', fn: (s) => { s.phil.board = true; s.p.network = Math.min(100, s.p.network + 12); s.phil.standing = Math.min(100, s.phil.standing + 10); s.p.schedule.network = Math.max(s.p.schedule.network, 3); return 'Your network now includes the mayor, two hospital CEOs and a very persuasive retired nun.'; } },
+      { label: 'Decline politely', fn: (s) => { s.phil.board = true; return 'You keep writing checks instead.'; } },
+    ],
+  };
+  E.relief = {
+    kind: 'life', title: 'Your community needs help',
+    text: (s, d) => `After the ${d.haz}, hundreds of families in ${s.loc.city} have lost homes and paychecks. The relief fund is asking local business owners to step up.`,
+    choices: (s) => {
+      const nw = Math.max(50000, G.state.netWorth(s));
+      const amts = [0.005, 0.02, 0.1].map((x) => Math.max(1000, Math.round(nw * x / 1000) * 1000));
+      return amts.map((a) => ({ label: `Give ${M(a)}`, disabled: s.p.cash < a, fn: (s) => G.give.donate(s, 'disaster', a) })).concat([{ label: 'Not right now', fn: () => 'Others step up instead.' }]);
+    },
+  };
+
   // ===================== Random: life =====================
   E.carrepair = {
     kind: 'life', title: 'Car trouble', w: 3, when: (s) => s.p.transport === 'car',
@@ -594,6 +612,7 @@ G.events = (function () {
           }
           if (!t.online) { b.flags.closedWeeks = Math.round(1 + sev * 2); msg += `You are closed for about ${b.flags.closedWeeks} week${b.flags.closedWeeks > 1 ? 's' : ''}. `; }
         }
+        if (G.state.netWorth(s) >= 200000) s.eventQueue.push({ id: 'relief', data: { haz: G.HAZARDS[d.haz].label.toLowerCase().replace(/s$/, '') } });
         if (['hurricane', 'flood', 'tornado', 'earthquake'].includes(d.haz) && Math.random() < sev * 0.5) { s.p.cash -= 1500; msg += 'Your apartment has damage too: $1,500 out of pocket. '; }
         return msg || 'You make it through with minor inconvenience.';
       } }];

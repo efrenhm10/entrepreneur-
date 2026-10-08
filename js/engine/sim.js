@@ -21,8 +21,12 @@ G.sim = (function () {
     s.flags.hyperfocus = hyper ? (Math.random() < 0.15 ? 1.7 : Math.random() < 0.18 ? 0.6 : 1) : null;
     if (s.flags.hyperfocus === 1.7) r.alerts.push('Hyperfocus week: you got twice as much done.');
 
+    G.hold.ensure(s); G.give.ensure(s);
     G.life.week(s, r);
     if (s.biz) G.biz.week(s, r);
+    G.hold.week(s, r);
+    G.give.week(s, r);
+    if (G.hold.unlocked(s)) G.hold.refreshMarket(s);
     G.finance.tickPending(s);
     G.biz.tickListing(s);
 
@@ -101,7 +105,7 @@ G.sim = (function () {
     const p = s.p, b = s.biz;
     const year = U.yearOf(s.week) - 1;
     p.prevYtd = Object.assign({}, p.ytd, { year, entity: b ? b.entity : 'sole', corpProfit: b && b.entity === 'ccorp' ? b.ytdProfit : 0, filed: false });
-    p.ytd = { wages: 0, withheld: 0, gig: 0, biz: 0, est: 0, other: 0, penalty: 0, corpSalary: 0, capgain: 0 };
+    p.ytd = { wages: 0, withheld: 0, gig: 0, biz: 0, est: 0, other: 0, penalty: 0, corpSalary: 0, capgain: 0, donations: 0 };
     if (b) b.ytdProfit = 0;
     const infl = s.econ.infl / 100;
     s.loc.rent = Math.round(s.loc.rent * (1 + infl * 1.1));
@@ -126,15 +130,17 @@ G.sim = (function () {
     const scores = {
       wealth: Math.max(0, st.peakNW) / 10000,
       freedom: p.weeksSelfEmployed / 5 + Math.max(0, nw) / 50000,
-      impact: st.jobsCreated * 12 + st.customers / 500,
-      legacy: (s.biz ? G.biz.enterpriseValue(s, s.biz) / 20000 : 0) + U.sum(s.pastBiz, (x) => (x.ended - (x.opened || x.ended)) / 26 + (x.price || 0) / 20000),
+      impact: st.jobsCreated * 12 + st.customers / 500 + (s.phil ? s.phil.given / 5000 + s.phil.standing : 0),
+      legacy: (s.biz ? G.biz.enterpriseValue(s, s.biz) / 20000 : 0) + (s.holdings ? G.hold.totalValue(s) / 40000 : 0) + (s.phil && s.phil.foundation ? s.phil.foundation.endowment / 20000 : 0) + U.sum(s.pastBiz, (x) => (x.ended - (x.opened || x.ended)) / 26 + (x.price || 0) / 20000),
       proveit: st.revenue / 25000,
       mastery: st.bestRating * 20 + U.avg(Object.values(p.skills)) / 2,
     };
     const why = scores[p.why] || 0;
-    const score = Math.round(why * 2 + Math.max(0, nw) / 20000 + st.jobsCreated * 4 + p.happiness / 2);
-    const title = nw > 10e6 ? 'Tycoon' : nw > 1e6 ? 'Self-made millionaire' : st.jobsCreated > 20 ? 'Community pillar' : all.length > 2 ? 'Serial entrepreneur' : all.length ? 'Small business owner' : 'Dreamer';
-    return { score, title, nw, years, scores, all };
+    const given = s.phil ? s.phil.given : 0;
+    const score = Math.round(why * 2 + Math.max(0, nw) / 20000 + st.jobsCreated * 4 + p.happiness / 2 + given / 10000);
+    const empire = s.holdings && s.holdings.length >= 3;
+    const title = given >= 1e6 || (given >= 100000 && given >= st.peakNW * 0.25) ? 'Philanthropist' : empire && nw > 5e6 ? 'Conglomerate builder' : nw > 10e6 ? 'Tycoon' : nw > 1e6 ? 'Self-made millionaire' : st.jobsCreated > 20 ? 'Community pillar' : all.length > 2 ? 'Serial entrepreneur' : all.length ? 'Small business owner' : 'Dreamer';
+    return { score, title, nw, years, scores, all, given };
   }
 
   return { canAdvance, advance, legacy };
