@@ -33,7 +33,7 @@ GR.uiWorld = (function () {
       body = ui.table(['Year', 'Position'], p.hist.slice().reverse().map((h) => `<tr><td>${h.y}</td><td>${esc(h.t)}</td></tr>`), { empty: 'No history.' });
     } else if (cur === 'committees') {
       const rows = [];
-      Object.entries(s.bodies).forEach(([bk, B]) => Object.entries(B.comm).forEach(([k, c]) => { if (c.members.includes(p.id)) rows.push(`<tr><td>${GR.BODIES[bk].name}</td><td>${esc(G().committeeName({ body: bk, comm: k }))}</td><td>${c.chair === p.id ? 'Chair' : 'Member'}</td></tr>`); }));
+      Object.entries(s.bodies).forEach(([bk, B]) => Object.entries(B.comm).forEach(([k, c]) => { if (c.members.includes(p.id)) rows.push(`<tr><td>${GR.BODIES[bk].name}</td><td>${esc(GR.comm.nameOf(bk, k))}</td><td>${c.chair === p.id ? 'Chair' : c.rank === p.id ? 'Ranking Member' : 'Member'}</td></tr>`); }));
       body = ui.table(['Chamber', 'Committee', 'Role'], rows, { empty: 'No committee assignments.' });
     } else {
       body = `<div class="polgrid">${GR.POLICIES.filter((x) => x.ideo > 0).map((x) => `<div class="pol"><b>${esc(x.name)}</b><span style="padding:2px 6px;border-left:1px solid var(--line)">${esc(GR.policyOpts(x, 'n')[GR.scoreToIdx(x, W().stance(p, x.k), 'n')])}</span></div>`).join('')}</div>`;
@@ -73,26 +73,29 @@ GR.uiWorld = (function () {
   function bodyView(s, bk, cur) {
     const B = s.bodies[bk];
     if (!B) return '<p class="muted">This chamber does not exist here.</p>';
-    const ms = W().members(s, bk);
+    const all = W().members(s, bk);
     const comp = W().composition(s, bk);
     const fed = G().isFed(bk);
+    // Congress: one state's delegation at a time.
+    const pst = fed ? (ui.sel.pst || s.home.state) : null;
+    const ms = fed ? all.filter((p) => p.isPlayer ? s.home.state === pst : p.fed ? p.fed.st === pst : s.home.state === pst) : all;
+    const stSel = fed ? `<div class="row"><b>Delegation</b><select class="input" data-ch="pst">${GR.STATES.map((x) => `<option value="${x.ab}" ${x.ab === pst ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>` : '';
     if (cur === 'summary') {
       const maj = W().majority(s, bk);
       return `<div class="cols"><div class="stack">
         <div class="band">${GR.BODIES[bk].name}${fed ? ' (whole chamber)' : ''}</div>
         <div class="row">${ui.pie([{ v: comp.D, c: 'var(--dem)' }, { v: comp.R, c: 'var(--rep)' }])}<div>${ui.kv([['Democrats', comp.D], ['Republicans', comp.R], ['Majority', GR.PARTIES[maj].name]])}</div></div>
-        ${fed ? `<p class="small muted">Your state's delegation: ${ms.length} member${ms.length === 1 ? '' : 's'}.</p>` : ''}
+        ${fed ? `<p class="small muted">${all.length} members in all. ${esc(GR.STATE[pst].name)} delegation: ${ms.length}.</p>` : ''}
       </div><div class="stack"><div class="band">Leadership</div>
         ${ui.table(['Post', 'Held by'], G().posts(s, bk).map((p) => `<tr><td>${esc(p.name)}</td><td>${p.holder ? (p.holder.isPlayer ? '<b>You</b>' : ui.plink(s, p.holder.id) + (p.holder.ext ? ` <span class="small muted">${esc(p.holder.st)}</span>` : '')) : '—'}</td></tr>`))}</div></div>`;
     }
     if (cur === 'politicians') {
       const sel = ms.find((p) => p.id === ui.sel.pol) || ms[0];
-      return `<div class="side" style="grid-template-columns:200px minmax(0,1fr)"><div class="plist">${ms.map((p) => `<button class="pcard ${p === sel ? 'on' : ''}" data-act="pickpol" data-a="${p.id}"><div>${esc(W().fullName(p))}</div>${ui.facePol(s, p)}<div>(${p.party} - ${esc(W().seatTitle(s, s.seats[p.seat]).replace(/^.*?(District|Ward|-)\s*/, '').slice(0, 14))})</div></button>`).join('')}</div><div class="panel" style="box-shadow:none;background:var(--panel)">${polDetail(s, sel, 'pdl')}</div></div>`;
+      if (!sel) return stSel + '<p class="muted">No members.</p>';
+      return stSel + `<div class="side" style="grid-template-columns:200px minmax(0,1fr)"><div class="plist">${ms.map((p) => `<button class="pcard ${p === sel ? 'on' : ''}" data-act="pickpol" data-a="${p.id}"><div>${esc(W().fullName(p))}</div>${ui.facePol(s, p)}<div>(${p.party} - ${p.fed ? esc(p.fed.st + (p.fed.n ? '-' + p.fed.n : '')) : p.seat ? esc(W().seatTitle(s, s.seats[p.seat]).replace(/^.*?(District|Ward|-)\s*/, '').slice(0, 14)) : ''})</div></button>`).join('')}</div><div class="panel" style="box-shadow:none;background:var(--panel)">${polDetail(s, sel, 'pdl')}</div></div>`;
     }
     if (cur === 'committees') {
-      const jur = GR.BODIES[bk].jur;
-      const list = GR.COMMITTEES[jur === 'school' ? 'school' : jur === 'city' ? 'city' : jur];
-      return ui.table(['Committee', 'Covers', 'Chair', 'Members'], list.map((c) => { const cm = B.comm[c.k] || { members: [] }; return `<tr><td>${esc(c.name)}</td><td class="small">${c.cats.join(', ')}</td><td>${cm.chair ? ui.plink(s, cm.chair) : '—'}</td><td class="small">${cm.members.map((id) => ui.pname(s, id)).join(', ')}</td></tr>`; }));
+      return ui.table(['Committee', 'Tier', 'Chair', 'Ranking', { t: 'Seats', c: 'r' }, 'Members'], GR.comm.listFor(bk).map((c) => { const cm = B.comm[c.k] || { members: [] }; const d = cm.members.filter((id) => s.pols[id] && s.pols[id].party === 'D').length; return `<tr><td>${esc(GR.comm.nameOf(bk, c.k))}<br><span class="small muted">${c.cats.join(', ')}</span></td><td class="small">${GR.COMMITTEE_TIERS[c.tier].name}</td><td>${cm.chair ? ui.plink(s, cm.chair) : '—'}</td><td>${cm.rank ? ui.plink(s, cm.rank) : '—'}</td><td class="r num">${d} D · ${cm.members.length - d} R</td><td class="small">${fed ? cm.members.filter((id) => s.pols[id] && (id === 'me' || (s.pols[id].fed && s.pols[id].fed.st === s.home.state))).map((id) => ui.pname(s, id)).join(', ') || '<span class="muted">No one from your state</span>' : cm.members.map((id) => ui.pname(s, id)).join(', ')}</td></tr>`; }));
     }
     if (cur === 'caucuses') {
       const rows = [];
@@ -100,7 +103,7 @@ GR.uiWorld = (function () {
       return ui.table(['Caucus', 'Members', ''], rows);
     }
     if (cur === 'rankings') {
-      const list = ms.slice().sort((a, b) => b.pp - a.pp);
+      const list = (fed ? all : ms).slice().sort((a, b) => b.pp - a.pp).slice(0, 60);
       return ui.table(['#', 'Member', 'Political Points', 'Approval', 'Terms'], list.map((p, i) => `<tr class="${p.isPlayer ? 'me' : ''}"><td>${i + 1}</td><td>${p.isPlayer ? '<b>You</b>' : ui.plink(s, p.id)}</td><td class="r num">${U.num(p.pp)}</td><td class="r">${Math.round(p.app)}%</td><td class="r">${p.terms[G().BODY_OFF[bk]] || 0}</td></tr>`));
     }
     // Districts map: ZIP dots colored by the member's party.
@@ -164,7 +167,7 @@ GR.uiWorld = (function () {
     const pres = s.pols[n.president];
     const h = W().composition(s, 'ushouse'), se = W().composition(s, 'ussenate');
     return `<div class="cols"><div class="stack">${ui.kv([['President', `${ui.plink(s, n.president)} · approval ${Math.round(pres.app)}%`], ['U.S. House', `${h.D} D · ${h.R} R`], ['U.S. Senate', `${se.D} D · ${se.R} R`], ['Generic ballot', n.env > 0 ? 'R+' + n.env : n.env < 0 ? 'D+' + -n.env : 'Even'], ['Economic growth', s.jur.nation.met.growth.toFixed(1) + '%'], ['Unemployment', s.jur.nation.met.unemp.toFixed(1) + '%']])}</div>
-      <div class="mapbox">${ui.usMap((ab) => { if (ab === s.home.state) return '#ffd400'; const o = n.other[ab]; if (!o) return 'var(--paper)'; const sv = Object.values(o.sen); const r = sv.filter((x) => x === 'R').length; return sv.length ? (r === 2 ? 'var(--rep)' : r === 0 ? 'var(--dem)' : '#9b6fc2') : 'var(--paper)'; }, { act: 'noop' })}<div class="legend"><span><i style="background:var(--dem)"></i>Two D senators</span><span><i style="background:var(--rep)"></i>Two R senators</span><span><i style="background:#9b6fc2"></i>Split</span><span><i style="background:#ffd400"></i>Your state</span></div></div></div>`;
+      <div class="mapbox">${ui.usMap((ab) => { if (ab === s.home.state) return '#ffd400'; const o = n.other[ab]; if (!o) return 'var(--paper)'; const sv = Object.values(o.sen).map((id) => (s.pols[id] ? s.pols[id].party : id)); const r = sv.filter((x) => x === 'R').length; return sv.length ? (r === 2 ? 'var(--rep)' : r === 0 ? 'var(--dem)' : '#9b6fc2') : 'var(--paper)'; }, { act: 'noop' })}<div class="legend"><span><i style="background:var(--dem)"></i>Two D senators</span><span><i style="background:var(--rep)"></i>Two R senators</span><span><i style="background:#9b6fc2"></i>Split</span><span><i style="background:#ffd400"></i>Your state</span></div></div></div>`;
   }
 
   function raceModal(s, year, id) {
@@ -226,7 +229,7 @@ GR.uiWorld = (function () {
       const cats2 = Object.keys(t.sp);
       body = `<div class="cols">${ui.table([{ t: 'Expenditure by Category', c: 'c' }, { t: '', c: 'r' }], cats2.map((c) => `<tr><td class="c">${esc(c)}</td><td class="r num">${U.money(t.sp[c])}</td></tr>`).concat([`<tr><td class="c">Total</td><td class="r num">${U.money(t.spend)}</td></tr>`]))}
         <div class="box boxpad">${ui.lines(cats2.map((c, i) => ({ name: c, color: colors[i % colors.length], values: J.hist.map((h) => (h.spend[c] || 0)).concat([t.sp[c]]) })), xs, { title: 'Expenditure by Category', fmt: (v) => U.money(v) })}</div></div>
-        ${ui.table(['Revenue', 'Expenditure', 'Surplus / Deficit', L === 'nation' ? 'National debt' : 'Reserves'], [`<tr><td class="r num">${U.money(t.rev)}</td><td class="r num">${U.money(t.spend)}</td><td class="r num ${t.bal >= 0 ? 'good' : 'bad'}">${U.money(t.bal)}</td><td class="r num">${U.money(L === 'nation' ? J.budget.debt : J.budget.reserve)}</td></tr>`], { caption: 'Treasury' })}`;
+        ${ui.table(['Revenue', 'Expenditure', 'Surplus / Deficit', L === 'nation' ? 'National debt' : 'Reserves'], [`<tr><td class="r num">${U.money(t.rev)}</td><td class="r num">${U.money(t.spend)}</td><td class="r num ${t.bal >= 0 ? 'good' : 'bad'}">${U.money(t.bal)}</td><td class="r num">${U.money(L === 'nation' ? J.F.debt : J.F.reserve)}</td></tr>`], { caption: 'Treasury' })}`;
     } else {
       const lvl = GR.lvlOf(L);
       body = `<div class="cols">${ui.table(['Policy', 'Current law'], GR.policiesFor(L).map((p) => `<tr><td>${esc(p.name)}</td><td>${esc(GR.policyOpts(p, lvl)[J.law[p.k]])}${J.law[p.k] !== J.law0[p.k] ? ' <span class="small muted">(changed)</span>' : ''}</td></tr>`))}
@@ -244,6 +247,7 @@ GR.uiWorld = (function () {
 
   const A = (n, fn) => ui.on(n, fn);
   A('pickpol', (el, a) => { ui.sel.pol = a; });
+  A('pst', (el) => { ui.sel.pst = el.value; ui.sel.pol = null; });
   A('elmine', (el, a) => { ui.sel.elMine = a === '1'; });
   A('ry', (el, a) => { ui.sel.ry = +a; });
 

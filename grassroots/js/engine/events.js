@@ -70,9 +70,9 @@ GR.events = (function () {
       make: () => ({ title: 'The economy is sliding', body: 'Economists warn of a downturn. Your advisers propose two paths.', choices: ['Push a stimulus package', 'Cut spending and hold the line'] }),
       res: (s, i) => {
         const J = s.jur[GR.OFFICES[office(s).off].jur];
-        s.nat.econ.cycle -= 1.2;
-        if (i === 0) { Object.keys(J.budget.mult).forEach((k) => { J.budget.mult[k] *= 1.04; }); s.nat.econ.cycle += 0.6; me(s).app += 1; return 'Stimulus softens the blow, but adds to the deficit.'; }
-        Object.keys(J.budget.mult).forEach((k) => { J.budget.mult[k] *= 0.97; }); me(s).app -= 1; return 'Fiscal hawks applaud; others warn of pain ahead.';
+        J.F.mac.gap -= 1.2;
+        if (i === 0) { J.F.ag.forEach((a) => { a.capex *= 1.06; a.opex *= 1.02; }); me(s).app += 1; return 'Stimulus softens the blow, but adds to the deficit.'; }
+        J.F.ag.forEach((a) => { a.opex *= 0.97; }); me(s).app -= 1; return 'Fiscal hawks applaud; others warn of pain ahead.';
       },
     },
     court: {

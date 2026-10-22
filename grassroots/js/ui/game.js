@@ -47,7 +47,7 @@ GR.uiGame = (function () {
         <span class="st" title="Political points">${ICON.star}<span class="num">${U.num(me.pp)}</span></span>
         <span class="st" title="${me.seat ? 'Approval rating' : 'Favorability'}">${ICON.thumb}<span class="num">${approval}%</span></span>
         <button class="st inbox ${n ? '' : 'clear'}" data-act="gotab" data-a="news|inbox" title="Inbox">${ICON.mail}<span class="num">${n}</span></button>
-        <button class="st tasks" data-act="gotab" data-a="office|legis" title="Votes and decisions waiting">${ICON.check}<span class="num">${tasks}</span></button>
+        <button class="st tasks" data-act="gotab" data-a="office|docket" title="Votes and decisions waiting">${ICON.check}<span class="num">${tasks}</span></button>
         <span class="st small muted" title="Hours left this week">Hours: <b class="num" style="color:var(--ink)">${s.hoursLeft}</b></span>
       </div>
       <div class="mainbar" role="tablist">
@@ -76,6 +76,7 @@ GR.uiGame = (function () {
     } else if (m.kind === 'pol') inner = GR.uiWorld.polModal(s, m.id);
     else if (m.kind === 'menu') inner = menu(s);
     else if (m.kind === 'race') inner = GR.uiWorld.raceModal(s, m.year, m.id);
+    else if (m.kind === 'bill') inner = GR.uiGov.billModal(s, m.id);
     return `<div class="overlay" data-act="closeOverlay"><div class="modal" role="dialog" aria-modal="true" data-act="stop">${inner}</div></div>`;
   }
 

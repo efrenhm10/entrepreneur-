@@ -132,38 +132,53 @@ GR.LEADERSHIP.ussenate = GR.LEADERSHIP.senate.map((x) => ({ ...x, sen: x.sen + (
 // Committees. cats: policy categories they handle. Budget bills go to Appropriations.
 GR.COMMITTEES = {
   state: [
-    { k: 'approp', name: 'Appropriations', cats: ['Budget'] },
-    { k: 'ways', name: 'Ways & Means', cats: ['Taxes'] },
-    { k: 'commerce', name: 'Commerce & Labor', cats: ['Economy'] },
-    { k: 'health', name: 'Health & Human Services', cats: ['Health'] },
-    { k: 'judiciary', name: 'Judiciary', cats: ['Justice', 'Guns', 'Social'] },
-    { k: 'education', name: 'Education', cats: ['Education'] },
-    { k: 'environment', name: 'Environment & Energy', cats: ['Environment'] },
-    { k: 'housing', name: 'Housing & Transportation', cats: ['Housing'] },
-    { k: 'stateaffairs', name: 'State Affairs & Elections', cats: ['Elections', 'Immigration'] },
+    { k: 'approp', name: 'Appropriations', cats: ['Budget'], tier: 'A' },
+    { k: 'ways', name: 'Ways & Means', cats: ['Taxes'], tier: 'A' },
+    { k: 'commerce', name: 'Commerce & Labor', cats: ['Economy'], tier: 'B' },
+    { k: 'health', name: 'Health & Human Services', cats: ['Health'], tier: 'B' },
+    { k: 'judiciary', name: 'Judiciary', cats: ['Justice', 'Guns', 'Social'], tier: 'B' },
+    { k: 'education', name: 'Education', cats: ['Education'], tier: 'B' },
+    { k: 'environment', name: 'Environment & Energy', cats: ['Environment'], tier: 'B' },
+    { k: 'housing', name: 'Housing & Transportation', cats: ['Housing'], tier: 'B' },
+    { k: 'stateaffairs', name: 'State Affairs & Elections', cats: ['Elections', 'Immigration'], tier: 'C' },
   ],
   nation: [
-    { k: 'approp', name: 'Appropriations', cats: ['Budget'] },
-    { k: 'ways', name: 'Ways & Means / Finance', cats: ['Taxes', 'Economy'] },
-    { k: 'energy', name: 'Energy & Commerce', cats: ['Environment', 'Health'] },
-    { k: 'judiciary', name: 'Judiciary', cats: ['Justice', 'Guns', 'Social', 'Immigration'] },
-    { k: 'armed', name: 'Armed Services', cats: ['Defense'] },
-    { k: 'education', name: 'Education & Workforce', cats: ['Education'] },
-    { k: 'homeland', name: 'Homeland Security', cats: ['Immigration'] },
-    { k: 'transport', name: 'Transportation & Infrastructure', cats: ['Housing'] },
-    { k: 'admin', name: 'Administration & Elections', cats: ['Elections'] },
+    { k: 'approp', name: 'Appropriations', cats: ['Budget'], tier: 'A' },
+    { k: 'ways', name: 'Ways & Means', cats: ['Taxes', 'Economy'], tier: 'A' },
+    { k: 'energy', name: 'Energy & Commerce', cats: ['Environment', 'Health'], tier: 'A' },
+    { k: 'judiciary', name: 'Judiciary', cats: ['Justice', 'Guns', 'Social', 'Immigration'], tier: 'B' },
+    { k: 'armed', name: 'Armed Services', cats: ['Defense'], tier: 'B' },
+    { k: 'education', name: 'Education & Workforce', cats: ['Education'], tier: 'B' },
+    { k: 'homeland', name: 'Homeland Security', cats: ['Immigration'], tier: 'B' },
+    { k: 'transport', name: 'Transportation & Infrastructure', cats: ['Housing'], tier: 'B' },
+    { k: 'admin', name: 'Administration & Elections', cats: ['Elections'], tier: 'C' },
   ],
   city: [
-    { k: 'budget', name: 'Budget & Finance', cats: ['Budget', 'Taxes'] },
-    { k: 'safety', name: 'Public Safety', cats: ['Justice', 'Immigration'] },
-    { k: 'land', name: 'Land Use & Housing', cats: ['Housing', 'Economy'] },
-    { k: 'rules', name: 'Rules & Government', cats: ['Elections', 'Environment'] },
+    { k: 'budget', name: 'Budget & Finance', cats: ['Budget', 'Taxes'], tier: 'A' },
+    { k: 'safety', name: 'Public Safety', cats: ['Justice', 'Immigration'], tier: 'B' },
+    { k: 'land', name: 'Land Use & Housing', cats: ['Housing', 'Economy'], tier: 'B' },
+    { k: 'rules', name: 'Rules & Government', cats: ['Elections', 'Environment'], tier: 'C' },
   ],
   school: [
-    { k: 'finance', name: 'Finance', cats: ['Budget'] },
-    { k: 'curriculum', name: 'Curriculum & Instruction', cats: ['Education', 'Social', 'Health'] },
+    { k: 'finance', name: 'Finance', cats: ['Budget'], tier: 'A' },
+    { k: 'curriculum', name: 'Curriculum & Instruction', cats: ['Education', 'Social', 'Health'], tier: 'B' },
   ],
 };
+// Chamber-specific committee names (the U.S. Senate and state senates use their own).
+GR.COMMITTEE_NAMES = {
+  senate: { ways: 'Finance' },
+  ussenate: { ways: 'Finance', energy: 'Commerce, Science & Transportation', education: 'Health, Education, Labor & Pensions', transport: 'Environment & Public Works', homeland: 'Homeland Security & Governmental Affairs', admin: 'Rules & Administration' },
+};
+// Real committee sizes in Congress (118th/119th); state and local sizes scale with the chamber.
+GR.COMMITTEE_SIZE = {
+  ushouse: { approp: 61, ways: 43, energy: 52, judiciary: 26, armed: 59, education: 45, homeland: 33, transport: 67, admin: 9 },
+  ussenate: { approp: 29, ways: 28, energy: 28, judiciary: 21, armed: 27, education: 21, homeland: 15, transport: 19, admin: 17 },
+};
+// Committee assignments per member (everyone can sit on at least two), and how many of them
+// may be exclusive (tier A) panels like Appropriations or Ways & Means.
+GR.COMMITTEE_SLOTS = { school: 2, council: 2, house: 2, senate: 3, ushouse: 2, ussenate: 3 };
+GR.COMMITTEE_MAX_A = { school: 1, council: 1, house: 1, senate: 2, ushouse: 1, ussenate: 2 };
+GR.COMMITTEE_TIERS = { A: { name: 'Exclusive', frac: 0.3 }, B: { name: 'Major', frac: 0.17 }, C: { name: 'Minor', frac: 0.1 } };
 
 GR.STAFF = [
   { k: 'manager', name: 'Campaign Manager', desc: '+1 action per week and +10% to every campaign action.', cost: 0.0045, min: 120 },

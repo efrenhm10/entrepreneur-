@@ -27,7 +27,7 @@ GR.life = (function () {
     if (sp && sp.salary) inc += sp.salary / 52;
     // Take-home pay after federal, state and payroll taxes.
     const gross = inc * 52;
-    const rate = 0.12 + Math.min(0.2, gross / 1.5e6) + (GR.POLICY.incometax.rate.s[s.jur.state.law.incometax] || 0) / 200;
+    const rate = 0.12 + Math.min(0.2, gross / 1.5e6) + ((s.jur.state.F && s.jur.state.F.tax.mid) || 0) / 100;
     return Math.round(inc * (1 - rate));
   }
   function weeklyCosts(s) {

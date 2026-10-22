@@ -3,7 +3,7 @@ var GR = globalThis.GR || (globalThis.GR = {});
 
 GR.state = (function () {
   const U = GR.util;
-  const KEY = 'grassroots_save_v1';
+  const KEY = 'grassroots_save_v2';
 
   // cfg comes from character creation.
   function newGame(cfg) {

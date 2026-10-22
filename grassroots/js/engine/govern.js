@@ -41,438 +41,6 @@ GR.gov = (function () {
     return s.week % 2 === 0;
   }
 
-  // ---------- Bills ----------
-  function policyBill(s, jur, k, to, spon) {
-    const J = s.jur[jur];
-    const pol = GR.POLICY[k];
-    const lvl = GR.lvlOf(jur);
-    const opts = GR.policyOpts(pol, lvl);
-    const from = J.law[k];
-    const body0 = bodiesOf(s, jur)[0];
-    const comm = committeeFor(s, body0, pol.cat);
-    return {
-      id: U.uid('b'), jur, k, from, to, title: `${pol.name} Act`, sub: `${opts[from]} → ${opts[to]}`, spon, cos: [],
-      stage: 'committee', body: body0, comm, w: s.week, due: s.week + U.randInt(1, 3), votes: [], my: {}, pledges: {},
-    };
-  }
-
-  function committeeFor(s, b, cat) {
-    const B = s.bodies[b];
-    if (!B) return null;
-    const jur = GR.BODIES[b].jur;
-    const list = GR.COMMITTEES[jur === 'school' ? 'school' : jur === 'city' ? 'city' : jur];
-    const c = list.find((x) => x.cats.includes(cat)) || list[0];
-    return c.k;
-  }
-
-  // AI members introduce bills that move the law toward their views.
-  function npcBills(s) {
-    ['school', 'city', 'state', 'nation'].forEach((jur) => {
-      const bs = bodiesOf(s, jur);
-      if (!bs.length || !inSession(s, bs[0])) return;
-      const J = s.jur[jur];
-      const pending = (J.bills || []).filter((x) => !['law', 'dead', 'vetoed'].includes(x.stage)).length;
-      if (pending > 8 || !U.chance(jur === 'nation' || jur === 'state' ? 0.45 : 0.3)) return;
-      const maj = W().majority(s, bs[0]);
-      const party = U.chance(0.72) ? maj : GR.other(maj);
-      let spon = U.pick(W().members(s, bs[0]).filter((m) => m.party === party && !m.isPlayer));
-      if (!spon && isFed(bs[0])) spon = W().extMember(s, party, bs[0]);
-      if (!spon && jur === 'school') spon = U.pick(W().members(s, 'school').filter((m) => !m.isPlayer));
-      if (!spon) return;
-      const lvl = GR.lvlOf(jur);
-      const cands = GR.policiesFor(jur).map((pol) => {
-        const cur = GR.optScore(pol, J.law[pol.k], lvl);
-        const want = W().stance(spon, pol.k);
-        return { pol, gap: want - cur };
-      }).filter((x) => Math.abs(x.gap) > 0.8);
-      const busy = new Set((J.bills || []).filter((x) => !['law', 'dead', 'vetoed'].includes(x.stage)).map((x) => x.k));
-      const open = cands.filter((x) => !busy.has(x.pol.k));
-      if (!open.length) return;
-      const c = U.weighted(open, (x) => Math.abs(x.gap) * x.pol.sal);
-      const to = U.clamp(J.law[c.pol.k] + (c.gap > 0 ? 1 : -1), 0, GR.policyOpts(c.pol, lvl).length - 1);
-      if (to === J.law[c.pol.k]) return;
-      const b = policyBill(s, jur, c.pol.k, to, spon.id);
-      J.bills = J.bills || [];
-      J.bills.push(b);
-    });
-  }
-
-  // A member's inclination to vote yes (positive) on a bill.
-  function inclination(s, p, b, bodyKey) {
-    const J = s.jur[b.jur];
-    let v = 0;
-    if (b.budget) {
-      const fis = W().axes(p).fis;
-      v = 0.6 - fis * b.budget.change * 12 - (b.budget.taxUp ? fis * 0.6 : 0);
-      const ex = execOf(s, b.jur);
-      if (ex) v += ex.party === p.party ? 0.8 : -0.5;
-    } else {
-      const pol = GR.POLICY[b.k];
-      const lvl = GR.lvlOf(b.jur);
-      const st = W().stance(p, b.k);
-      const dFrom = Math.abs(st - GR.optScore(pol, b.from, lvl));
-      const dTo = Math.abs(st - GR.optScore(pol, b.to, lvl));
-      v = (dFrom - dTo) * 1.4;
-      // District pressure.
-      const seat = s.seats[p.seat];
-      if (seat && seat.off !== 'president') {
-        const pr = W().seatProfile(s, seat);
-        const id = GR.elect.ideal(pr, 'I', pol) * 0.6 + GR.elect.ideal(pr, p.party, pol) * 0.4;
-        v += (Math.abs(id - GR.optScore(pol, b.from, lvl)) - Math.abs(id - GR.optScore(pol, b.to, lvl))) * 0.5;
-      }
-    }
-    // Party whip: leadership backs bills its party sponsored.
-    const sp = s.pols[b.spon];
-    if (sp) v += sp.party === p.party ? 0.55 : -0.35;
-    if (p.traits && p.traits.includes('Bipartisan')) v += 0.2;
-    // Relationships and respect for the player's bills.
-    if (b.spon === 'me' || b.agenda) {
-      v += rel(s, p.id) / 35 + ((s.pols.me.respect || 20) - 40) / 70;
-      if (b.pledges[p.id]) v += 1.6;
-    } else if (b.cos.includes('me')) v += rel(s, p.id) / 120;
-    return v;
-  }
-
-  function execOf(s, jur) {
-    const k = s.jur[jur].exec;
-    return k && s.seats[k] ? s.pols[s.seats[k].holder] : null;
-  }
-
-  // Vote count in a body. Returns individual votes for home members and totals.
-  function tally(s, b, bodyKey, noise = true) {
-    const ms = W().members(s, bodyKey);
-    const votes = {};
-    let y = 0, n = 0;
-    ms.forEach((p) => {
-      if (p.isPlayer) return;
-      const v = inclination(s, p, b, bodyKey) + (noise ? U.gauss() * 0.45 : 0);
-      votes[p.id] = v > 0 ? 'y' : 'n';
-      v > 0 ? y++ : n++;
-    });
-    if (isFed(bodyKey)) {
-      // Members from other states, by party.
-      const nat = bodyKey === 'ushouse' ? s.nat.house : s.nat.senate;
-      ['D', 'R'].forEach((party) => {
-        const pseudo = { party, fis: GR.PARTIES[party].base, soc: GR.PARTIES[party].base, sd: 'agg' + party, traits: [], id: 'agg' };
-        const base = inclination(s, pseudo, b, bodyKey) + (b.spon === 'me' ? ((s.fedRel || {})[bodyKey] || 0) / 40 : 0);
-        const frac = U.ncdf(base / 0.75);
-        const yy = Math.round(nat[party] * frac);
-        y += yy; n += nat[party] - yy;
-      });
-    }
-    const me = s.pols.me;
-    if (myBody(s) === bodyKey && b.my[bodyKey]) { if (b.my[bodyKey] === 'y') y++; else if (b.my[bodyKey] === 'n') n++; }
-    return { y, n, votes };
-  }
-
-  // Projected support for a bill (the whip count).
-  function whipCount(s, b, bodyKey) {
-    const ms = W().members(s, bodyKey).filter((p) => !p.isPlayer);
-    const rows = ms.map((p) => ({ id: p.id, v: inclination(s, p, b, bodyKey) })).map((r) => ({ ...r, lean: r.v > 0.6 ? 'Yes' : r.v > 0 ? 'Lean yes' : r.v > -0.6 ? 'Lean no' : 'No' }));
-    const t = tally(s, b, bodyKey, false);
-    return { rows, y: t.y + (b.my[bodyKey] === 'y' || (b.spon === 'me' && myBody(s) === bodyKey) ? (b.my[bodyKey] ? 0 : 1) : 0), n: t.n, total: t.y + t.n + (myBody(s) === bodyKey ? 1 : 0) };
-  }
-
-  // Advance bills one week.
-  function billsWeek(s) {
-    npcBills(s);
-    ['school', 'city', 'state', 'nation'].forEach((jur) => {
-      const J = s.jur[jur];
-      (J.bills || []).forEach((b) => stepBill(s, J, b));
-      J.bills = (J.bills || []).filter((b) => !(['law', 'dead', 'vetoed'].includes(b.stage) && s.week - (b.done || s.week) > 10));
-    });
-  }
-
-  function leaderOf(s, bodyKey, post) { const B = s.bodies[bodyKey]; return B && B.lead[post] ? s.pols[B.lead[post]] : null; }
-
-  function stepBill(s, J, b) {
-    if (['law', 'dead', 'vetoed'].includes(b.stage)) return;
-    if (s.week < b.due) return;
-    // Another law may have changed this policy while the bill was pending.
-    if (!b.budget && J.law[b.k] !== b.from) {
-      if (J.law[b.k] === b.to) { kill(s, b, 'became moot when the law changed'); return; }
-      const opts = GR.policyOpts(GR.POLICY[b.k], GR.lvlOf(b.jur));
-      b.from = J.law[b.k];
-      b.sub = `${opts[b.from]} → ${opts[b.to]}`;
-    }
-    const me = s.pols.me;
-    const B = s.bodies[b.body];
-    if (!B) { b.stage = 'dead'; return; }
-    if (!inSession(s, b.body) && b.stage !== 'exec') { b.due = s.week + 1; return; }
-    if (b.stage === 'committee') {
-      const cm = B.comm[b.comm];
-      const chair = cm && s.pols[cm.chair];
-      if (chair && chair.isPlayer && !b.my.comm) { task(s, b, 'comm'); b.due = s.week + 1; return; }
-      let adv;
-      if (chair && chair.isPlayer) adv = b.my.comm === 'y';
-      else if (b.budget) adv = true;
-      else {
-        const inc = chair ? inclination(s, chair, b, b.body) : 0.3;
-        adv = inc + (b.spon === 'me' ? rel(s, chair && chair.id) / 40 : 0) + U.gauss() * 0.5 > -0.2;
-      }
-      if (!adv) { kill(s, b, `died in the ${committeeName(b)} committee`); return; }
-      // Floor leaders decide what gets a vote.
-      const lead = leaderOf(s, b.body, b.body === 'house' || b.body === 'ushouse' ? 'speaker' : b.body === 'school' || b.body === 'council' ? 'president' : 'majleader');
-      if (lead && lead.isPlayer && !b.my.floor) { task(s, b, 'floor'); b.due = s.week + 1; return; }
-      if (lead && lead.isPlayer && b.my.floor === 'n') { kill(s, b, 'was kept off the floor by leadership'); return; }
-      if (lead && !lead.isPlayer && !b.budget && inclination(s, lead, b, b.body) + (b.spon === 'me' ? rel(s, lead.id) / 30 : 0) < -0.9 && U.chance(0.7)) { kill(s, b, 'was blocked from a floor vote by leadership'); return; }
-      b.stage = 'floor';
-      b.due = s.week + 1;
-      if (myBody(s) === b.body) task(s, b, 'vote');
-      return;
-    }
-    if (b.stage === 'floor') {
-      if (myBody(s) === b.body && !b.my[b.body]) {
-        // Missed vote: auto-vote with your inclination when auto-vote is on, otherwise abstain.
-        b.my[b.body] = s.settings.autoVote ? (inclination(s, me, b, b.body) > 0 ? 'y' : 'n') : 'a';
-        if (b.my[b.body] === 'a') { addRespect(s, -0.3); }
-        recordVote(s, b, b.body, b.my[b.body]);
-      }
-      const t = tally(s, b, b.body);
-      const pass = t.y > t.n;
-      b.votes.push({ body: b.body, y: t.y, n: t.n, pass, w: s.week, ind: myBody(s) === b.body ? t.votes : null });
-      clearTask(s, b);
-      if (!pass) { kill(s, b, `failed in the ${GR.BODIES[b.body].name} ${t.y}-${t.n}`); return; }
-      const bs = bodiesOf(s, b.jur);
-      const next = bs[bs.indexOf(b.body) + 1];
-      if (next) {
-        b.body = next;
-        b.stage = 'committee';
-        b.comm = b.budget ? committeeFor(s, next, 'Budget') : committeeFor(s, next, GR.POLICY[b.k].cat);
-        b.due = s.week + 1;
-        return;
-      }
-      b.stage = 'exec';
-      b.due = s.week + 1;
-      const ex = execOf(s, b.jur);
-      if (ex && ex.isPlayer) task(s, b, 'sign');
-      return;
-    }
-    if (b.stage === 'exec') {
-      const ex = execOf(s, b.jur);
-      let sign;
-      if (!ex) sign = true;
-      else if (ex.isPlayer) {
-        if (!b.my.sign) { b.my.sign = 'y'; GR.sim.news(s, `The ${b.title} became law without your signature.`, 'gov'); }
-        sign = b.my.sign === 'y';
-      } else if (b.budget) sign = U.chance(0.93);
-      else sign = inclination(s, ex, b, null) + U.gauss() * 0.4 > -0.3;
-      clearTask(s, b);
-      if (sign) { enact(s, b); return; }
-      // Veto: override needs two-thirds in every chamber.
-      const over = bodiesOf(s, b.jur).every((bk) => { const t = tally(s, b, bk); return t.y >= (t.y + t.n) * 2 / 3; });
-      if (over) { b.override = true; enact(s, b); GR.sim.news(s, `Veto overridden: the ${b.title} becomes law.`, 'gov'); return; }
-      b.stage = 'vetoed';
-      b.done = s.week;
-      GR.sim.news(s, `${ex ? W().fullName(ex) : 'The executive'} vetoed the ${b.title}.`, 'gov');
-      if (b.spon === 'me') GR.sim.msgInbox(s, 'Your bill was vetoed', `${W().fullName(ex)} vetoed your ${b.title}. Override votes fell short.`);
-    }
-  }
-
-  const committeeName = (b) => {
-    const jur = GR.BODIES[b.body].jur;
-    const list = GR.COMMITTEES[jur === 'school' ? 'school' : jur === 'city' ? 'city' : jur];
-    const c = list.find((x) => x.k === b.comm);
-    return c ? c.name : 'committee';
-  };
-
-  function kill(s, b, why) {
-    b.stage = 'dead';
-    b.why = why;
-    b.done = s.week;
-    clearTask(s, b);
-    if (b.spon === 'me') {
-      GR.sim.msgInbox(s, 'Your bill failed', `Your ${b.title} ${why}.`);
-      addRespect(s, -1);
-    }
-  }
-
-  function enact(s, b) {
-    const J = s.jur[b.jur];
-    b.stage = 'law';
-    b.done = s.week;
-    if (b.budget) {
-      Object.assign(J.budget.mult, b.budget.mult);
-      Object.assign(J.budget.revMult, b.budget.revMult || {});
-      J.budget.passed = U.yearOf(s.week);
-      J.laws.unshift({ w: s.week, t: `${U.yearOf(s.week)} budget enacted`, spon: b.spon });
-      GR.sim.news(s, `${J.name}: the ${U.yearOf(s.week)} budget is law.`, 'gov');
-    } else {
-      J.law[b.k] = b.to;
-      J.laws.unshift({ w: s.week, t: `${b.title}: ${b.sub}`, spon: b.spon });
-      GR.sim.news(s, `New law in ${J.name}: ${GR.POLICY[b.k].name} is now "${GR.policyOpts(GR.POLICY[b.k], GR.lvlOf(b.jur))[b.to]}".`, 'gov');
-    }
-    if (J.laws.length > 60) J.laws.pop();
-    if (b.spon === 'me') {
-      s.stats.billsPassed++;
-      addRespect(s, 3);
-      s.pols.me.pp += 15;
-      GR.sim.log(s, `Your ${b.title} became law (${b.sub}).`);
-      GR.sim.msgInbox(s, 'Your bill is law!', `The ${b.title} was signed into law. ${b.sub}.`);
-    }
-  }
-
-  // Votes on others' bills shape relationships and approval back home.
-  function recordVote(s, b, bodyKey, v) {
-    const me = s.pols.me;
-    s.stats.votesCast++;
-    const sp = s.pols[b.spon];
-    if (sp && b.spon !== 'me') addRel(s, b.spon, v === 'y' ? 6 : v === 'n' ? -6 : -1);
-    // Deals.
-    (s.deals || []).forEach((d) => {
-      if (d.bill === b.id && d.mine === 'vote') {
-        if (v === 'y') { d.kept = true; addRel(s, d.who, 8); addRespect(s, 1); }
-        else { d.broken = true; addRel(s, d.who, -40); addRespect(s, -8); GR.sim.msgInbox(s, 'You broke a deal', `${W().fullName(s.pols[d.who])} is furious that you went back on your word. Word gets around.`); }
-      }
-    });
-    // Party loyalty.
-    if (sp && !b.budget) {
-      const withParty = (sp.party === me.party) === (v === 'y');
-      me.standing = U.clamp(me.standing + (withParty ? 0.3 : -1.2) * (me.traits.includes('loyal') ? 1.4 : 1), 0, 100);
-      W().members(s, bodyKey).forEach((p) => { if (p.party === me.party && !p.isPlayer) addRel(s, p.id, withParty ? 0.4 : -0.8); });
-    }
-    // Constituents.
-    const seat = s.seats[me.seat];
-    if (seat && !b.budget && v !== 'a') {
-      const pr = W().seatProfile(s, seat);
-      const pol = GR.POLICY[b.k];
-      const lvl = GR.lvlOf(b.jur);
-      const id = GR.elect.ideal(pr, 'I', pol) * 0.5 + GR.elect.ideal(pr, pr.lean > 0 ? 'R' : 'D', pol) * 0.5;
-      const good = Math.abs(id - GR.optScore(pol, b.to, lvl)) < Math.abs(id - GR.optScore(pol, b.from, lvl));
-      const agree = (v === 'y') === good;
-      me.app = U.clamp(me.app + (agree ? 0.5 : -0.8) * pol.sal, 1, 99);
-      s.voteLog = s.voteLog || [];
-      s.voteLog.unshift({ w: s.week, t: b.title, sub: b.sub, v, agree });
-      if (s.voteLog.length > 80) s.voteLog.pop();
-    }
-  }
-
-  function task(s, b, kind) { b.task = kind; }
-  function clearTask(s, b) { b.task = null; }
-
-  // Player's open tasks (the checkbox count).
-  function tasks(s) {
-    const out = [];
-    ['school', 'city', 'state', 'nation'].forEach((jur) => (s.jur[jur].bills || []).forEach((b) => {
-      if (b.task === 'vote' && myBody(s) === b.body && !b.my[b.body]) out.push({ b, kind: 'vote' });
-      else if (b.task === 'comm' && !b.my.comm) out.push({ b, kind: 'comm' });
-      else if (b.task === 'floor' && !b.my.floor) out.push({ b, kind: 'floor' });
-      else if (b.task === 'sign' && !b.my.sign) out.push({ b, kind: 'sign' });
-    }));
-    return out;
-  }
-
-  // Player decisions on bills.
-  function decide(s, billId, kind, v) {
-    const b = findBill(s, billId);
-    if (!b) return { ok: false };
-    if (kind === 'vote') { b.my[b.body] = v; recordVote(s, b, b.body, v); }
-    else if (kind === 'comm') { b.my.comm = v; if (b.spon !== 'me') addRel(s, b.spon, v === 'y' ? 8 : -10); }
-    else if (kind === 'floor') { b.my.floor = v; if (b.spon !== 'me') addRel(s, b.spon, v === 'y' ? 6 : -12); }
-    else if (kind === 'sign') {
-      b.my.sign = v;
-      const ex = s.pols.me;
-      const seat = s.seats[ex.seat];
-      if (seat && !b.budget) {
-        const pr = W().seatProfile(s, seat);
-        const pol = GR.POLICY[b.k];
-        const lvl = GR.lvlOf(b.jur);
-        const id = GR.elect.ideal(pr, 'I', pol);
-        const good = Math.abs(id - GR.optScore(pol, b.to, lvl)) < Math.abs(id - GR.optScore(pol, b.from, lvl));
-        ex.app = U.clamp(ex.app + ((v === 'y') === good ? 0.8 : -1.2) * pol.sal, 1, 99);
-      }
-      if (b.spon !== 'me') addRel(s, b.spon, v === 'y' ? 10 : -15);
-    }
-    return { ok: true };
-  }
-
-  function findBill(s, id) {
-    for (const jur of ['school', 'city', 'state', 'nation']) { const b = (s.jur[jur].bills || []).find((x) => x.id === id); if (b) return b; }
-    return null;
-  }
-
-  // Cost in political points to introduce a bill.
-  function billCost(s, jur, k, to) {
-    const J = s.jur[jur];
-    const steps = Math.abs(to - J.law[k]);
-    const lvl = s.pols.me.seat ? GR.OFFICES[s.seats[s.pols.me.seat].off].level : 1;
-    let c = (10 + steps * steps * 8) * (0.6 + lvl * 0.4);
-    if (s.pols.me.traits.includes('wonk')) c *= 0.7;
-    return Math.round(c);
-  }
-
-  // Player writes a bill (legislators) or sends an agenda bill (executives).
-  function writeBill(s, k, to) {
-    const me = s.pols.me;
-    const jur = myJur(s);
-    if (!jur) return { ok: false, msg: 'You need to hold office to write laws.' };
-    const pol = GR.POLICY[k];
-    if (!pol.lv.includes(GR.lvlOf(jur))) return { ok: false, msg: 'That issue is not handled at this level of government.' };
-    const J = s.jur[jur];
-    if (J.law[k] === to) return { ok: false, msg: 'That is already the law.' };
-    if ((J.bills || []).some((b) => b.k === k && !['law', 'dead', 'vetoed'].includes(b.stage))) return { ok: false, msg: 'A bill on this issue is already moving.' };
-    const cost = billCost(s, jur, k, to);
-    if (me.pp < cost) return { ok: false, msg: `You need ${cost} political points.` };
-    if (s.hoursLeft < 6) return { ok: false, msg: 'Drafting a bill takes 6 hours.' };
-    const isExec = GR.OFFICES[s.seats[me.seat].off].exec;
-    if (!bodiesOf(s, jur).length) return { ok: false, msg: 'There is no legislature here.' };
-    me.pp -= cost;
-    s.hoursLeft -= 6;
-    const b = policyBill(s, jur, k, to, 'me');
-    if (isExec) b.agenda = true;
-    const steps = Math.abs(to - J.law[k]);
-    b.title = (isExec ? 'The ' + (s.pols.me.ln) + ' ' : '') + pol.name + (steps > 1 ? ' Reform Act' : ' Act');
-    J.bills = J.bills || [];
-    J.bills.push(b);
-    s.stats.billsWritten++;
-    me.sk.policy = U.clamp(me.sk.policy + (U.chance(0.4) ? 1 : 0), 0, 99);
-    return { ok: true, msg: `Introduced the ${b.title}. It goes to the ${committeeName(b)} committee.` };
-  }
-
-  // Ask a colleague to commit to your bill.
-  function askPledge(s, billId, pid) {
-    const b = findBill(s, billId);
-    const p = s.pols[pid];
-    if (!b || !p) return { ok: false };
-    if (s.hoursLeft < 1) return { ok: false, msg: 'No hours left this week.' };
-    s.hoursLeft -= 1;
-    const v = inclination(s, p, Object.assign({}, b, { pledges: {} }), b.body);
-    const pr = U.clamp(0.5 + v * 0.3 + rel(s, pid) / 150, 0.03, 0.95);
-    if (U.chance(pr)) { b.pledges[pid] = true; addRel(s, pid, 1); return { ok: true, msg: `${W().fullName(p)} pledged to vote yes.` }; }
-    // Offer a trade instead.
-    if (U.chance(0.45)) {
-      const theirs = allBills(s).find((x) => x.spon === pid && ['committee', 'floor'].includes(x.stage) && x.body === myBody(s));
-      if (theirs) {
-        s.offer = { bill: b.id, who: pid, theirs: theirs.id, w: s.week };
-        return { ok: true, msg: `${W().fullName(p)} will back your bill if you vote for their ${theirs.title}. (See Office → Legislation to accept.)` };
-      }
-    }
-    addRel(s, pid, -1);
-    return { ok: true, msg: `${W().fullName(p)} would not commit.` };
-  }
-
-  function acceptTrade(s) {
-    const o = s.offer;
-    if (!o) return { ok: false };
-    const b = findBill(s, o.bill);
-    if (b) b.pledges[o.who] = true;
-    s.deals = s.deals || [];
-    s.deals.push({ who: o.who, bill: o.theirs, mine: 'vote', w: s.week });
-    s.offer = null;
-    addRel(s, o.who, 5);
-    return { ok: true, msg: 'Deal struck. Keep your word on their bill.' };
-  }
-
-  const allBills = (s) => ['school', 'city', 'state', 'nation'].flatMap((j) => s.jur[j].bills || []);
-
-  function cosponsor(s, billId) {
-    const b = findBill(s, billId);
-    if (!b || b.cos.includes('me') || b.spon === 'me') return { ok: false };
-    b.cos.push('me');
-    addRel(s, b.spon, 7);
-    return { ok: true, msg: `You co-sponsored the ${b.title}.` };
-  }
-
   // ---------- Office activities (hours) ----------
   const OFFICE_ACTS = {
     coffee: { name: 'Coffee with a colleague', h: 2, desc: 'Build a relationship one-on-one.', who: true },
@@ -528,7 +96,7 @@ GR.gov = (function () {
         me.infl = U.clamp((me.infl || 0) + 1.2, 0, 100);
         me.sk.policy = U.clamp(me.sk.policy + (U.chance(0.2) ? 1 : 0), 0, 99);
         const B = bk && s.bodies[bk];
-        if (B && me.comm && B.comm[me.comm]) B.comm[me.comm].members.forEach((id) => addRel(s, id, 1.5));
+        if (B) GR.comm.commsOf(s, bk, 'me').forEach((k) => B.comm[k].members.forEach((id) => addRel(s, id, 1.5 / GR.comm.commsOf(s, bk, 'me').length)));
         me.pp += 3;
         msg = 'Your committee work is getting noticed.';
         break;
@@ -660,7 +228,6 @@ GR.gov = (function () {
     const post = GR.LEADERSHIP[bodyKey].find((p) => p.k === postK);
     const lower = GR.LEADERSHIP[bodyKey].filter((p) => p.rank < post.rank).sort((a, b) => b.rank - a.rank);
     for (const l of lower) { const x = B.lead[l.k] && s.pols[B.lead[l.k]]; if (x && !x.isPlayer && x.party === party) return x; }
-    if (isFed(bodyKey)) return W().extMember(s, party, bodyKey);
     const pool = W().members(s, bodyKey).filter((m) => m.party === party && !m.isPlayer && !m.lead).sort((a, b) => (b.terms[BODY_OFF[bodyKey]] || 0) - (a.terms[BODY_OFF[bodyKey]] || 0));
     return pool[0] || null;
   }
@@ -679,21 +246,18 @@ GR.gov = (function () {
       const dMe = Math.abs((va.fis + va.soc) - (ma.fis + ma.soc)) / 2;
       const dR = Math.abs((va.fis + va.soc) - (ra.fis + ra.soc)) / 2;
       let x = rel(s, v.id) / 22 + ((me.respect || 20) - 45) / 25 + (dR - dMe) * 0.9 + ((me.standing || 30) - 50) / 60;
+      if (isFed(bodyKey) && v.fed) x += ((s.fedRel || {})[bodyKey] || 0) / 18 + (me.recNat - 25) / 80;
+      // Caucus rebellion: members from districts hit by worsening crises turn on sitting leaders.
+      const J = s.jur[GR.BODIES[bodyKey].jur];
+      if (me.lead && me.lead.body === bodyKey) x -= GR.legis.rebellion(s, v, J, GR.legis.ctxOf(s, v)) * 1.2;
       x -= rival ? ((rival.infl || 30) - 40) / 45 + (rival.lead ? 0.6 : 0) + (v.ties || 0) * 0 : -2;
       if (me.traits.includes('loyal')) x += 0.25;
       if (me.traits.includes('maverick')) x -= 0.3;
       return { id: v.id, x, lean: x > 0.5 ? 'You' : x > 0 ? 'Leans you' : x > -0.5 ? 'Leans rival' : 'Rival' };
     });
-    let ext = null;
-    if (isFed(bodyKey)) {
-      const nat = bodyKey === 'ushouse' ? s.nat.house : s.nat.senate;
-      const total = (post.side === 'any' ? nat.D + nat.R : nat[party]);
-      const f = U.ncdf((((s.fedRel || {})[bodyKey] || 0) / 15 + ((me.respect || 20) - 50) / 22 + (me.recNat - 30) / 40 + ((me.standing || 30) - 55) / 30 - ((rival && rival.infl) || 40) / 60) / 1.0);
-      ext = { you: Math.round(total * f), them: total - Math.round(total * f) };
-    }
-    const you = rows.filter((r) => r.x > 0).length + (ext ? ext.you : 0) + 1;
-    const them = rows.length - rows.filter((r) => r.x > 0).length + (ext ? ext.them : 0) + (rival ? 1 : 0);
-    return { rival, rows, you, them, ext };
+    const you = rows.filter((r) => r.x > 0).length + 1;
+    const them = rows.length - rows.filter((r) => r.x > 0).length + (rival ? 1 : 0);
+    return { rival, rows, you, them, ext: null };
   }
 
   // Organize a chamber: committees, chairs and leadership (with the player's bid).
@@ -768,123 +332,12 @@ GR.gov = (function () {
       const p = isFed(bodyKey) ? W().extMember(s, party, bodyKey) : W().members(s, bodyKey).filter((m) => m.party === party && !m.isPlayer && !m.lead)[0];
       if (p) { B.lead[post.k] = p.id; p.lead = { body: bodyKey, post: post.k }; }
     });
-    // Committees: assign newcomers, pick chairs by seniority in the majority.
-    const ms = W().members(s, bodyKey);
-    Object.keys(B.comm).forEach((k) => { B.comm[k].members = B.comm[k].members.filter((id) => ms.some((m) => m.id === id)); });
-    ms.forEach((m) => {
-      if (Object.values(B.comm).some((c) => c.members.includes(m.id))) return;
-      let k = m.isPlayer && s.commPref && B.comm[s.commPref] ? s.commPref : U.pick(Object.keys(B.comm));
-      B.comm[k].members.push(m.id);
-      m.comm = k;
-    });
-    Object.keys(B.comm).forEach((k) => {
-      const pool = B.comm[k].members.map((id) => s.pols[id]).filter((m) => m && m.party === maj).sort((a, b) => (b.terms[BODY_OFF[bodyKey]] || 0) * 10 + (b.isPlayer ? (b.respect || 0) / 10 : b.infl / 10) - ((a.terms[BODY_OFF[bodyKey]] || 0) * 10 + (a.isPlayer ? (a.respect || 0) / 10 : a.infl / 10)));
-      const prev = B.comm[k].chair;
-      B.comm[k].chair = pool[0] ? pool[0].id : null;
-      if (B.comm[k].chair === 'me' && prev !== 'me') GR.sim.msgInbox(s, 'Committee chair', `Seniority has made you chair of the ${(GR.COMMITTEES[GR.BODIES[bodyKey].jur === 'school' ? 'school' : GR.BODIES[bodyKey].jur === 'city' ? 'city' : GR.BODIES[bodyKey].jur].find((c) => c.k === k) || {}).name} committee. Bills in your committee move only if you advance them.`);
-    });
+    // Committees: seniority, ratios, newcomers, chairs and the player's steering bid.
+    GR.comm.reorganize(s, bodyKey);
   }
 
-  // Ask to switch committees (takes effect immediately at a cost).
-  function requestCommittee(s, k) {
-    const bk = myBody(s);
-    const B = bk && s.bodies[bk];
-    const me = s.pols.me;
-    if (!B || !B.comm[k]) return { ok: false };
-    const cost = 25;
-    if (me.pp < cost) return { ok: false, msg: `Costs ${cost} political points.` };
-    const lead = leaderOf(s, bk, bk === 'house' || bk === 'ushouse' ? 'speaker' : bk === 'school' || bk === 'council' ? 'president' : 'majleader');
-    const p = lead && !lead.isPlayer ? U.clamp(0.45 + rel(s, lead.id) / 100 + ((me.respect || 20) - 30) / 150 + (lead.party === me.party ? 0.15 : -0.1), 0.05, 0.95) : 1;
-    me.pp -= cost;
-    if (!U.chance(p)) return { ok: true, msg: 'Leadership turned down your request.' };
-    Object.values(B.comm).forEach((c) => { c.members = c.members.filter((id) => id !== 'me'); if (c.chair === 'me') c.chair = null; });
-    B.comm[k].members.push('me');
-    me.comm = k;
-    s.commPref = k;
-    return { ok: true, msg: 'Committee assignment approved.' };
-  }
-
-  // ---------- Budgets ----------
-  const BUDGET_WEEK = { nation: 6, state: 5, city: 18, school: 16 };
-
-  function budgetWeek(s) {
-    const woy = s.week - U.weekOfMD(U.yearOf(s.week), 0, 1);
-    ['school', 'city', 'state', 'nation'].forEach((jur) => {
-      if (woy !== BUDGET_WEEK[jur]) return;
-      if (!bodiesOf(s, jur).length) return;
-      const ex = execOf(s, jur);
-      if (ex && ex.isPlayer) {
-        s.budgetDue = s.budgetDue || {};
-        s.budgetDue[jur] = s.week + 3;
-        GR.sim.msgInbox(s, 'Submit your budget', `Your ${U.yearOf(s.week)} budget for ${s.jur[jur].name} is due in 3 weeks. Open Office → Budget to set spending and taxes, then send it to the legislature.`);
-        return;
-      }
-      submitBudget(s, jur, npcBudget(s, jur, ex), ex ? ex.id : null);
-    });
-    // Player missed the deadline: staff submit a status-quo budget.
-    Object.entries(s.budgetDue || {}).forEach(([jur, due]) => {
-      if (s.week >= due) { delete s.budgetDue[jur]; submitBudget(s, jur, { mult: Object.assign({}, s.jur[jur].budget.mult), revMult: Object.assign({}, s.jur[jur].budget.revMult) }, 'me'); }
-    });
-  }
-
-  function npcBudget(s, jur, ex) {
-    const J = s.jur[jur];
-    const mult = Object.assign({}, J.budget.mult);
-    const revMult = Object.assign({}, J.budget.revMult);
-    const fis = ex ? W().axes(ex).fis : 0;
-    Object.keys(mult).forEach((c) => {
-      if (c === 'Interest on Debt') return;
-      let d = 0.006 - fis * 0.012 + U.gauss() * 0.008;
-      if (c === 'Military' || c === 'Police' || c === 'Public Safety') d += fis * 0.02;
-      mult[c] = U.clamp(U.round(mult[c] * (1 + d), 3), 0.5, 2);
-    });
-    // Federal deficits: AI presidents trim spending and raise revenue when deficits balloon.
-    if (jur === 'nation') {
-      const t = W().totals(Object.assign({}, J, { budget: Object.assign({}, J.budget, { mult, revMult }) }));
-      const gap = -t.bal / t.spend;
-      if (gap > 0.22) {
-        Object.keys(mult).forEach((c) => { if (c !== 'Interest on Debt') mult[c] = U.round(mult[c] * (1 - Math.min(0.04, gap * 0.08)), 3); });
-        revMult.Other = U.round(revMult.Other * (1 + Math.min(0.15, gap * 0.25)), 3);
-        revMult['Income Tax'] = U.round(revMult['Income Tax'] * (1 + Math.min(0.04, gap * 0.05)), 3);
-      }
-    }
-    // Surpluses get spent or returned.
-    if (jur !== 'nation') {
-      const t = W().totals(Object.assign({}, J, { budget: Object.assign({}, J.budget, { mult, revMult }) }));
-      if (t.bal > t.spend * 0.03) {
-        if (fis > 0.3) { const key = jur === 'state' ? 'Sales Tax' : jur === 'city' ? 'Property Tax' : 'Local Levy'; revMult[key] = U.round(revMult[key] * (1 - (t.bal * 0.7) / (t.rv[key] || t.rev)), 3); }
-        else { const f = 1 + (t.bal * 0.7) / t.spend; Object.keys(mult).forEach((c) => { mult[c] = U.round(mult[c] * f, 3); }); }
-      }
-    }
-    // Balance rules for states, cities and schools.
-    if (jur !== 'nation') {
-      const t = W().totals(Object.assign({}, J, { budget: Object.assign({}, J.budget, { mult, revMult }) }));
-      if (t.bal < 0) {
-        const key = jur === 'state' ? 'Sales Tax' : jur === 'city' ? 'Property Tax' : 'Local Levy';
-        const base = t.rv[key] || 1;
-        const need = -t.bal * (fis > 0.5 ? 0.4 : 0.85);
-        revMult[key] = U.round(revMult[key] * (1 + need / base), 3);
-        if (fis > 0.5) { const f = 1 - (-t.bal * 0.6) / t.spend; Object.keys(mult).forEach((c) => { mult[c] = U.round(mult[c] * f, 3); }); }
-      }
-    }
-    return { mult, revMult };
-  }
-
-  function submitBudget(s, jur, plan, spon) {
-    const J = s.jur[jur];
-    const old = W().totals(J);
-    const nb = W().totals(Object.assign({}, J, { budget: Object.assign({}, J.budget, plan) }));
-    const change = (nb.spend - old.spend) / old.spend;
-    const taxUp = nb.rev > old.rev * 1.01;
-    const b = {
-      id: U.uid('b'), jur, budget: { mult: plan.mult, revMult: plan.revMult, change, taxUp }, title: `${U.yearOf(s.week)} ${J.name} Budget`, sub: `Spending ${change >= 0 ? '+' : ''}${(change * 100).toFixed(1)}%${taxUp ? ', tax increase' : ''}`,
-      spon: spon || null, cos: [], stage: 'committee', body: bodiesOf(s, jur)[0], comm: committeeFor(s, bodiesOf(s, jur)[0], 'Budget'), w: s.week, due: s.week + 2, votes: [], my: {}, pledges: {},
-    };
-    if (spon === 'me') b.agenda = true;
-    J.bills = J.bills || [];
-    J.bills.push(b);
-    return b;
-  }
+  // Ask to move to a committee with an open seat mid-session.
+  function requestCommittee(s, k) { return GR.comm.transfer(s, k); }
 
   // ---------- Executive orders ----------
   const EO_CATS = ['Immigration', 'Environment', 'Elections', 'Education', 'Justice', 'Health', 'Defense', 'Housing'];
@@ -913,18 +366,64 @@ GR.gov = (function () {
     return { ok: true, msg: `Executive order signed: ${pol.name} is now "${GR.policyOpts(pol, GR.lvlOf(jur))[to]}".` };
   }
 
+  // ---------- Bills (delegated to the legislative engine) ----------
+  const L = () => GR.legis;
+  const tasks = (s) => L().tasks(s);
+  const decide = (s, id, kind, v) => L().decide(s, id, kind, v);
+  const allBills = (s) => L().allBills(s);
+  const findBill = (s, id) => L().findBill(s, id);
+  function cosponsor(s, billId) {
+    const b = findBill(s, billId);
+    if (!b || b.cos.includes('me') || b.spon === 'me') return { ok: false };
+    b.cos.push('me');
+    addRel(s, b.spon, 7);
+    return { ok: true, msg: `You co-sponsored the ${b.title}.` };
+  }
+  function execOf(s, jur) {
+    const k = s.jur[jur].exec;
+    return k && s.seats[k] ? s.pols[s.seats[k].holder] : null;
+  }
+  function leaderOf(s, bodyKey, post) { const B = s.bodies[bodyKey]; return B && B.lead[post] ? s.pols[B.lead[post]] : null; }
+
+  // ---------- Economy: quarterly macro runs ----------
+  const isQuarterStart = (w) => U.isMonthStart(w) && U.monthOf(w) % 3 === 0;
+  function quarterRun(s) {
+    const nat = s.jur.nation, st = s.jur.state, city = s.jur.city, sch = s.jur.school;
+    // Random macro shocks hit the nation; disasters hit states according to their vulnerability.
+    const shock = U.chance(0.025) ? -U.round(1 + U.rand() * 2, 1) : 0;
+    if (shock) GR.sim.news(s, 'Markets tumble on recession fears; economists slash growth forecasts.', 'econ');
+    GR.fisc.quarter(nat, { noise: true, shock });
+    GR.fisc.quarter(st, { nat: nat.F, noise: true, shock: disaster(s, st) });
+    GR.fisc.quarter(city, { nat: nat.F, noise: true, shock: 0 });
+    GR.fisc.quarter(sch, { nat: nat.F, noise: true, shock: 0 });
+    // City and school economies follow the state's.
+    [city, sch].forEach((J) => { J.F.mac.g = st.F.mac.g + (J.F.mac.g - J.F.mac.pot) * 0.3; J.F.mac.u = st.F.mac.u + (J.F.mac.u0 - st.F.mac.u0); });
+    ['nation', 'state', 'city', 'school'].forEach((k) => { const J = s.jur[k]; J.met.growth = J.F.mac.g; J.met.unemp = J.F.mac.u; });
+    s.lastQuarter = s.week;
+  }
+  function disaster(s, J) {
+    const c = J.F.crises.disaster;
+    if (!c || !U.chance(0.012 + c.s / 2500)) return 0;
+    const kind = U.pick((GR.STATE_LEGACY_HAZ || {})[s.home.state] || ['A severe storm', 'Flooding', 'A wildfire', 'A heat wave']);
+    const prep = GR.fisc.mitigation(J, 'disaster');
+    const hit = U.round((0.4 + c.s / 120) * (1 - U.clamp(prep, -0.5, 0.6)), 2);
+    const env = J.F.ag.find((a) => a.cat === 'env'), dot = J.F.ag.find((a) => a.k === 'dot');
+    [env, dot].forEach((a) => { if (a) a.deg = U.clamp(a.deg + hit * 6, 0, 100); });
+    c.s = U.clamp(c.s + 3, 0, 100);
+    GR.sim.news(s, `${kind} strikes ${J.name}. Damage estimates climb; output takes a ${hit.toFixed(1)}-point hit this quarter.`, 'econ');
+    const me = s.pols.me;
+    if (me.seat && GR.OFFICES[s.seats[me.seat].off].jur === J.k) GR.sim.msgInbox(s, 'Disaster declaration', `${kind} hit ${J.name}. Consider emergency fund transfers (Briefing → Action Menu) or an emergency supplemental to restore damaged infrastructure. Voters will judge the response.`);
+    return -hit;
+  }
+
   // ---------- Metrics ----------
   function metricsMonth(s) {
-    const nat = s.nat;
-    // National business cycle.
-    const e = nat.econ;
-    e.cycle = U.clamp(e.cycle * 0.92 + U.gauss() * 0.25 + (U.chance(0.006) ? -3 : 0), -5, 3);
     ['nation', 'state', 'city', 'school'].forEach((jur) => {
       const J = s.jur[jur];
       const t = target(s, J);
       Object.keys(t).forEach((k) => {
-        const rate = k === 'growth' || k === 'unemp' ? 0.35 : 0.08;
-        J.met[k] = J.met[k] + (t[k] - J.met[k]) * rate + (k === 'growth' ? U.gauss() * 0.08 : 0);
+        if (k === 'growth' || k === 'unemp') return;
+        J.met[k] = J.met[k] + (t[k] - J.met[k]) * 0.08;
       });
     });
   }
@@ -938,62 +437,50 @@ GR.gov = (function () {
     GR.policiesFor(J.k).forEach((pol) => {
       const d = GR.optScore(pol, J.law[pol.k], lvl) - GR.optScore(pol, J.law0[pol.k], lvl);
       if (!d) return;
-      Object.entries(pol.fx).forEach(([k, v]) => { if (k !== 'rev') add(k, v * d); });
+      Object.entries(pol.fx).forEach(([k, v]) => { if (k !== 'rev' && k !== 'growth' && k !== 'unemp') add(k, v * d); });
     });
-    const b = J.budget;
-    const sp = (k) => (b.mult[k] || 1) - 1;
-    if (J.k === 'nation') { add('uninsured', -sp('Health Care') * 8); add('poverty', -sp('Human Services') * 4 - sp('Social Security') * 3); add('growth', sp('Infrastructure') * 1.5); add('grad', sp('Education') * 3); add('crime', -sp('Security & Safety') * 8); }
-    if (J.k === 'state') { add('grad', sp('K-12 Education') * 8); add('uninsured', -sp('Medicaid & Health') * 10); add('crime', -sp('Public Safety') * 15); add('poverty', -sp('Human Services') * 5); add('growth', sp('Transportation') * 1.2 + sp('Higher Education') * 0.8); }
-    if (J.k === 'city') { add('crime', -sp('Police') * 20 - sp('Parks & Libraries') * 3); add('rent', -sp('Housing') * 6); add('growth', sp('Roads & Transit') * 0.8); }
-    if (J.k === 'school') { add('grad', sp('Instruction') * 10 + sp('Student Support') * 5); }
-    // Business cycle and debt drag.
-    const cyc = s.nat.econ.cycle;
-    t.growth = (t.growth || 2) + cyc;
-    t.unemp = Math.max(2, (t.unemp || 4) - cyc * 0.55);
-    t.poverty = Math.max(2, (t.poverty || 10) - cyc * 0.25);
-    if (J.k !== 'nation') {
-      // Local economies track the nation.
-      t.growth += (s.jur.nation.met.growth - 2) * 0.5;
-    }
-    const tt = W().totals(J);
-    if (tt.bal < 0 && J.k !== 'nation') t.growth -= Math.min(1, (-tt.bal / tt.spend) * 4);
+    const a = GR.fisc.serviceAdj(J);
+    if (a.crime) t.crime *= a.crime;
+    if (a.grad) t.grad += a.grad;
+    if (a.uninsured) t.uninsured += a.uninsured;
+    if (a.poverty) t.poverty += a.poverty + (J.F.mac.u - J.F.mac.u0) * 0.3;
+    if (a.rent) t.rent *= a.rent * J.F.P;
+    if (a.emis) t.emis = 100 * a.emis;
+    t.income = m0.income * J.F.P * (J.F.mac.real / 100);
     return t;
   }
 
-  // Yearly snapshot and debt/reserves.
+  // Yearly snapshot for charts.
   function yearClose(s) {
     ['nation', 'state', 'city', 'school'].forEach((jur) => {
       const J = s.jur[jur];
       const t = W().totals(J);
-      if (jur === 'nation') J.budget.debt = Math.max(0, J.budget.debt - t.bal);
-      else { J.budget.reserve += t.bal; if (J.budget.reserve < 0) { J.budget.debt += -J.budget.reserve; J.budget.reserve = 0; } }
-      J.hist.push({ y: U.yearOf(s.week) - 1, met: Object.assign({}, J.met), spend: t.sp, rev: t.rv, total: t.spend, revenue: t.rev, debt: J.budget.debt, pop: J.pop });
+      J.hist.push({ y: U.yearOf(s.week) - 1, met: Object.assign({}, J.met), spend: t.sp, rev: t.rv, total: t.spend, revenue: t.rev, debt: J.F.debt, pop: J.pop });
       if (J.hist.length > 40) J.hist.shift();
       J.pop = Math.round(J.pop * (1 + (jur === 'nation' ? 0.005 : 0.004 + (J.met.growth - 2) * 0.002)));
       if (J.k === 'school') J.students = Math.round(J.pop * 0.15);
-      // Budgets grow with population and inflation.
-      Object.keys(J.budget.base).forEach((c) => { J.budget.base[c] *= 1.028; });
-      Object.keys(J.budget.revBase).forEach((c) => { J.budget.revBase[c] *= 1.03 + (J.met.growth - 2) * 0.004; });
     });
   }
 
   // ---------- Approval ----------
+  // Executives answer for the economy, agency performance and the crises matrix; legislators
+  // answer for their district's crises and how they voted.
   function approvalMonth(s) {
-    // Executives: judged on the economy, crime and budget.
     ['city', 'state', 'nation'].forEach((jur) => {
       const ex = execOf(s, jur);
       if (!ex) return;
       const J = s.jur[jur];
-      const m = J.met, m0 = J.met0;
-      let base = 50 + (m.growth - 2) * 3 - (m.unemp - m0.unemp) * 2.5 - ((m.crime - m0.crime) / m0.crime) * 30 - ((m.poverty - m0.poverty)) * 1.5;
+      const m = J.F.mac;
+      const vd = GR.fisc.dissatisfaction(J);
+      const agApp = U.avg(J.F.ag, (a) => a.app);
+      let base = 52 + (m.g - 2) * 3 - (m.u - m.u0) * 2.5 - (m.pi - 2.5) * 2 + (m.cc - 96) * 0.15 - (vd - (J.F.vd0 || 50)) * 0.6 - (vd - 45) * 0.15 + (agApp - 50) * 0.2 - (J.F.shutdown ? 8 : 0);
       const seat = s.seats[J.exec];
       const pr = W().seatProfile(s, seat);
-      const a = W().axes(ex);
-      base -= Math.abs((a.fis + a.soc) / 2 - pr.lean / 18) * 4;
+      const ax = W().axes(ex);
+      base -= Math.abs((ax.fis + ax.soc) / 2 - pr.lean / 18) * 4;
       if (jur === 'nation') base -= 4;
-      ex.app = U.clamp(ex.app + (base - ex.app) * 0.12 + U.gauss() * 1.2, 15, 85);
+      ex.app = U.clamp(ex.app + (base - ex.app) * 0.12 + (ex.isPlayer ? 0 : U.gauss() * 1.2), 8, 90);
     });
-    // NPC legislators drift; the player's approval reflects fit with the district.
     Object.values(s.pols).forEach((p) => {
       if (!p.seat || p.isPlayer || GR.OFFICES[s.seats[p.seat] ? s.seats[p.seat].off : 'school'].exec) return;
       p.app = U.clamp(p.app + (52 - p.app) * 0.05 + U.gauss() * 1.5, 20, 85);
@@ -1001,35 +488,65 @@ GR.gov = (function () {
     const me = s.pols.me;
     if (me.seat) {
       const seat = s.seats[me.seat];
+      const off = GR.OFFICES[seat.off];
+      if (off.exec) return;
       const pr = W().seatProfile(s, seat);
       const a = W().axes(me);
-      let base = 52 - Math.abs((a.fis + a.soc) / 2 - pr.lean / 18) * 5 - (me.scandal || 0) * 0.8 + (me.respect || 20) * 0.05;
-      if (GR.OFFICES[seat.off].exec) {
-        const J = s.jur[GR.OFFICES[seat.off].jur];
-        base += (J.met.growth - 2) * 3 - (J.met.unemp - J.met0.unemp) * 2.5 - ((J.met.crime - J.met0.crime) / J.met0.crime) * 30;
-      }
-      me.app = U.clamp(me.app + (base - me.app) * 0.15, 1, 99);
+      const J = s.jur[off.jur];
+      const vd = GR.fisc.dissatisfaction(J);
+      let base = 52 - Math.abs((a.fis + a.soc) / 2 - pr.lean / 18) * 5 - (me.scandal || 0) * 0.8 + (me.respect || 20) * 0.05 - (vd - (J.F.vd0 || 50)) * 0.35;
+      me.app = U.clamp(me.app + (base - me.app) * 0.12, 1, 99);
     }
   }
 
   // ---------- Weekly ----------
   function week(s) {
     s.fedRel = s.fedRel || {};
-    billsWeek(s);
-    budgetWeek(s);
+    if (isQuarterStart(s.week)) quarterRun(s);
+    GR.legis.week(s);
+    if (U.isMonthStart(s.week) && U.monthOf(s.week) === 6) balanceBudgets(s);
     if (U.isMonthStart(s.week)) { metricsMonth(s); approvalMonth(s); }
     if (U.isYearStart(s.week)) yearClose(s);
-    // Relationships slowly fade without contact.
     if (s.rel && s.week % 4 === 0) Object.keys(s.rel).forEach((k) => { s.rel[k] *= 0.985; if (Math.abs(s.rel[k]) < 0.5) delete s.rel[k]; });
-    // Expire stale deals and offers.
-    if (s.offer && s.week - s.offer.w > 3) s.offer = null;
-    if (s.deals) s.deals = s.deals.filter((d) => !d.kept && !d.broken && s.week - d.w < 30);
+  }
+
+  // Fiscal-year start (July 1): state and local balanced-budget requirements.
+  function balanceBudgets(s) {
+    ['state', 'city', 'school'].forEach((jur) => {
+      const J = s.jur[jur];
+      const r = GR.fisc.balanceRule(J);
+      if (!r) return;
+      if (r.cut > 0.002) {
+        GR.sim.news(s, `${J.name}: the balanced-budget requirement forces ${U.round(r.cut * 100, 1)}% across-the-board agency cuts (${U.money(r.amt)})${r.draw > 0 ? ` after draining ${U.money(r.draw)} from reserves` : ''}.`, 'gov');
+        J.F.ag.forEach((a) => { a.app = U.clamp(a.app - r.cut * 40, 0, 100); });
+        const ex = execOf(s, jur);
+        if (ex && ex.isPlayer) GR.sim.msgInbox(s, 'Mandatory budget cuts', `Your FY budget was out of balance. The balanced-budget requirement cut every agency by ${U.round(r.cut * 100, 1)}%. Raise revenue or trim spending in next year's budget to avoid it.`);
+      }
+    });
+  }
+
+  // Current office label for the briefing ("Year 2, Q3 - State Legislative Session").
+  function briefingLabel(s) {
+    const me = s.pols.me;
+    const seat = me.seat && s.seats[me.seat];
+    if (!seat) return '';
+    const off = GR.OFFICES[seat.off];
+    const y = U.yearOf(s.week);
+    const termYear = y - (me.since || y) + 1;
+    const q = Math.floor(U.monthOf(s.week) / 3) + 1;
+    const bk = myBody(s);
+    let branch;
+    if (off.jur === 'nation') branch = off.exec ? 'Federal Executive Branch' : `${Math.floor((y - 1789) / 2) + 1}th Congress, ${GR.BODIES[bk].name}${inSession(s, bk) ? ' (in session)' : ' (recess)'}`;
+    else if (off.jur === 'state') branch = off.exec ? 'State Executive Branch' : `State Legislative Session — ${GR.BODIES[bk].name}${inSession(s, bk) ? '' : ' (interim)'}`;
+    else if (off.jur === 'city') branch = off.exec ? 'Municipal Executive' : 'City Council';
+    else branch = 'Board of Education';
+    return `Year ${termYear}, Q${q} — ${branch}`;
   }
 
   return {
-    JUR_BODIES, BODY_OFF, bodiesOf, isFed, rel, addRel, addRespect, relLabel, myBody, myJur, inSession, policyBill, inclination, tally, whipCount,
-    billsWeek, tasks, decide, findBill, billCost, writeBill, askPledge, acceptTrade, cosponsor, allBills, OFFICE_ACTS, officeAct, donate, bumpRec,
-    posts, leadWindowOpen, canSeek, seek, rivalFor, leadCount, organize, requestCommittee, BUDGET_WEEK, submitBudget, npcBudget, EO_CATS, execOrder,
-    metricsMonth, target, yearClose, approvalMonth, week, execOf, committeeName, leaderOf,
+    JUR_BODIES, BODY_OFF, bodiesOf, isFed, rel, addRel, addRespect, relLabel, myBody, myJur, inSession,
+    tasks, decide, allBills, findBill, cosponsor, execOf, leaderOf,
+    OFFICE_ACTS, officeAct, donate, bumpRec, posts, leadWindowOpen, canSeek, seek, rivalFor, leadCount, organize, requestCommittee,
+    EO_CATS, execOrder, metricsMonth, target, yearClose, approvalMonth, week, quarterRun, briefingLabel, isQuarterStart,
   };
 })();

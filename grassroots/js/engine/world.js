@@ -213,106 +213,13 @@ GR.world = (function () {
   }
 
   // ---------- Budgets ----------
-  // Per-capita spending lines ($/yr) and revenue lines. Each line has a multiplier the
-  // budget process changes; some policies scale lines automatically.
-  const BUDGET = {
-    nation: {
-      spend: { 'Health Care': 4300, 'Social Security': 4400, Military: 2600, 'Interest on Debt': 0, 'Human Services': 1900, Veterans: 950, Education: 260, Infrastructure: 380, 'Security & Safety': 210, Other: 1100 },
-      rev: { 'Income Tax': 0, 'Corporate Tax': 0, 'Payroll Tax': 5100, Tariffs: 0, Other: 650 },
-    },
-    state: {
-      spend: { 'K-12 Education': 2400, 'Medicaid & Health': 2600, 'Higher Education': 600, Transportation: 700, 'Public Safety': 450, 'Human Services': 500, Other: 600 },
-      rev: { 'Income Tax': 0, 'Sales Tax': 1300, 'Corporate Tax': 0, 'Federal Aid': 2600, 'Fees & Other': 0 },
-    },
-    city: {
-      spend: { Police: 450, 'Fire & EMS': 250, 'Roads & Transit': 300, 'Parks & Libraries': 150, Housing: 120, Sanitation: 150, Administration: 200 },
-      rev: { 'Property Tax': 900, 'Sales Tax': 300, 'State Aid': 300, 'Fees & Other': 0 },
-    },
-    school: {
-      spend: { Instruction: 9000, 'Student Support': 3000, Transportation: 800, Facilities: 1500, Administration: 900 },
-      rev: { 'Local Levy': 6800, 'State Aid': 7000, 'Federal Aid': 900, Other: 0 },
-    },
-  };
-
-  function makeBudget(jur, J) {
-    const B = BUDGET[jur];
-    const n = jur === 'school' ? J.students : J.pop;
-    const b = { base: {}, mult: {}, revBase: {}, revMult: {}, debt: 0, reserve: 0, hist: [] };
-    Object.keys(B.spend).forEach((c) => { b.base[c] = B.spend[c] * n; b.mult[c] = 1; });
-    Object.keys(B.rev).forEach((c) => { b.revBase[c] = B.rev[c] * n; b.revMult[c] = 1; });
-    if (jur === 'nation') { b.debt = 38.5e12; b.base['Interest on Debt'] = 0; }
-    J.budget = b;
-    // Balance the starting budget with the "other" revenue line (federal: about a $1.8T deficit).
-    const t = totals(J);
-    const otherKey = jur === 'nation' ? 'Other' : jur === 'school' ? 'Other' : 'Fees & Other';
-    const gap = t.spend - t.rev - (jur === 'nation' ? 1.8e12 : -t.spend * 0.01);
-    b.revBase[otherKey] = Math.max(0, b.revBase[otherKey] + gap);
-    if (jur !== 'nation') b.reserve = t.spend * 0.08;
-    return b;
-  }
-
-  // Policy-driven scaling of budget lines.
-  function policyScale(J) {
-    const L = J.law;
-    const f = {};
-    const at = (k, arr) => (L[k] == null ? 1 : arr[L[k]]);
-    if (J.k === 'nation') {
-      f.Military = at('defense', [0.8, 0.9, 1, 1.05, 1.15]);
-      f['Health Care'] = at('healthsys', [1.45, 1.15, 1.04, 1, 0.9]) * at('drugprices', [0.94, 0.96, 0.98, 1, 1.01]);
-      f['Social Security'] = at('socsec', [1.1, 1, 1, 0.95, 0.9]);
-      f['Human Services'] = at('welfare', [1.18, 1.07, 1, 0.92, 0.85]);
-      f.Education = at('freecollege', [2.2, 1.5, 1.2, 1, 0.85]);
-      f.Other = at('foreignaid', [1.04, 1, 0.98, 0.96, 0.93]);
-    } else if (J.k === 'state') {
-      f['Medicaid & Health'] = at('medicaid', [1.25, 1.12, 1.08, 1, 0.92]) * at('healthsys', [1.6, 1.15, 1.03, 1, 0.97]);
-      f['Higher Education'] = at('freecollege', [1.8, 1.35, 1.12, 1, 0.88]);
-      f['K-12 Education'] = at('teacherpay', [1.1, 1.05, 1.02, 1, 0.99]) * at('schoolchoice', [1, 1, 1, 1.03, 1.08]);
-      f['Public Safety'] = at('police', [0.85, 0.94, 1, 1.07, 1.15]);
-      f['Human Services'] = at('welfare', [1.2, 1.08, 1, 0.93, 0.85]);
-      f.Transportation = at('transit', [1.2, 1.08, 1, 0.97, 0.92]);
-    } else if (J.k === 'city') {
-      f.Police = at('police', [0.8, 0.92, 1, 1.08, 1.18]);
-      f.Housing = at('rent', [1.15, 1.08, 1, 0.97, 0.95]);
-      f['Roads & Transit'] = at('transit', [1.3, 1.1, 1, 0.97, 0.9]);
-    } else if (J.k === 'school') {
-      f.Instruction = at('teacherpay', [1.12, 1.06, 1.02, 1, 0.99]);
-    }
-    // Normalize against the law the jurisdiction started with so day-one budgets match.
-    if (J.scale0) Object.keys(f).forEach((c) => { f[c] /= J.scale0[c] || 1; });
-    return f;
-  }
-
-  function revenueLines(J) {
-    const b = J.budget, L = J.law, n = J.k === 'school' ? J.students : J.pop;
-    const out = {};
-    Object.keys(b.revBase).forEach((c) => { out[c] = b.revBase[c] * b.revMult[c]; });
-    if (J.k === 'nation') {
-      const it = GR.POLICY.incometax.rate.n[L.incometax], ct = GR.POLICY.corptax.rate.n[L.corptax];
-      out['Income Tax'] = n * 192 * it * b.revMult['Income Tax'] * (1 + (L.capgains != null ? (2 - L.capgains) * 0.025 : 0)) * (1 + (2 - (L.estatetax || 2)) * 0.004);
-      out['Corporate Tax'] = n * 70 * ct * b.revMult['Corporate Tax'];
-      out.Tariffs = n * (150 + 220 * (L.trade || 0)) * b.revMult.Tariffs;
-    } else if (J.k === 'state') {
-      out['Income Tax'] = n * 300 * GR.POLICY.incometax.rate.s[L.incometax] * b.revMult['Income Tax'];
-      out['Corporate Tax'] = n * 48 * GR.POLICY.corptax.rate.s[L.corptax] * b.revMult['Corporate Tax'];
-      if (L.marijuana != null && L.marijuana <= 1) out['Fees & Other'] += n * 25;
-    } else if (J.k === 'city') {
-      out['Property Tax'] *= [1.12, 1.03, 1, 0.96, 0.92][L.propertytax == null ? 2 : L.propertytax] / (J.prop0 || 1);
-    }
-    return out;
-  }
-
-  function spendLines(J) {
-    const b = J.budget, f = policyScale(J);
-    const out = {};
-    Object.keys(b.base).forEach((c) => { out[c] = b.base[c] * b.mult[c] * (f[c] || 1); });
-    if (J.k === 'nation') out['Interest on Debt'] = b.debt * 0.031;
-    return out;
-  }
-
+  // Budgets live in the fiscal engine (GR.fisc). This wrapper keeps a simple shape for callers:
+  // sp: spending by agency/program, rv: revenue by line, spend, rev, bal.
   function totals(J) {
-    const sp = spendLines(J), rv = revenueLines(J);
-    const spend = U.sum(Object.values(sp)), rev = U.sum(Object.values(rv));
-    return { sp, rv, spend, rev, bal: rev - spend };
+    const t = GR.fisc.totals(J);
+    const rv = {};
+    Object.values(t.rv).forEach((x) => { rv[x.name] = x.amt; });
+    return { sp: t.sp, rv, spend: t.spend, rev: t.rev, bal: t.bal, raw: t };
   }
 
   // ---------- Metrics ----------
@@ -344,14 +251,7 @@ GR.world = (function () {
     if (k === 'school') J.students = Math.round(pop * 0.15);
     J.law0 = Object.assign({}, J.law);
     J.met0 = Object.assign({}, J.met);
-    J.scale0 = null;
-    makeBudget(k, J);
-    J.scale0 = policyScale(J);
-    if (k === 'city') J.prop0 = [1.12, 1.03, 1, 0.96, 0.92][J.law.propertytax == null ? 2 : J.law.propertytax];
-    // Rebalance after normalizing.
-    const t = totals(J);
-    const otherKey = k === 'nation' || k === 'school' ? 'Other' : 'Fees & Other';
-    J.budget.revBase[otherKey] = Math.max(0, J.budget.revBase[otherKey] - t.bal + (k === 'nation' ? -1.8e12 : t.spend * 0.01));
+    GR.fisc.init(s, J);
     return J;
   }
 
@@ -398,16 +298,19 @@ GR.world = (function () {
   // Party counts in a body, including members from other states for Congress.
   function composition(s, bodyKey) {
     const c = { D: 0, R: 0 };
-    bodySeats(s, bodyKey).forEach((seat) => { const p = s.pols[seat.holder]; if (p) c[p.party]++; });
-    if (bodyKey === 'ushouse') { c.D += s.nat.house.D; c.R += s.nat.house.R; }
-    if (bodyKey === 'ussenate') { c.D += s.nat.senate.D; c.R += s.nat.senate.R; }
+    members(s, bodyKey).forEach((p) => { c[p.party]++; });
     return c;
   }
   const majority = (s, bodyKey) => { const c = composition(s, bodyKey); return c.R > c.D ? 'R' : c.D > c.R ? 'D' : (bodyKey === 'ussenate' ? s.nat.presParty : 'R'); };
 
+  // Every member of a chamber. Congress includes all 435 Representatives and 100 Senators:
+  // your state's delegation holds real seats, the rest are tracked by state and district.
   function members(s, bodyKey) {
-    return bodySeats(s, bodyKey).map((x) => s.pols[x.holder]).filter(Boolean);
+    const home = bodySeats(s, bodyKey).map((x) => s.pols[x.holder]).filter(Boolean);
+    if ((bodyKey === 'ushouse' || bodyKey === 'ussenate') && s.nat && s.nat.fed) return home.concat(s.nat.fed[bodyKey].map((id) => s.pols[id]).filter(Boolean));
+    return home;
   }
+  const senior = (b) => (p) => (p.terms[offOfBody(b)] || 0) + (p.infl || 0) / 30;
 
   // Leadership for a body. For Congress, leaders usually come from other states.
   function setupLeadership(s, bodyKey) {
@@ -418,13 +321,8 @@ GR.world = (function () {
     const used = new Set();
     posts.slice().sort((a, b) => b.rank - a.rank).forEach((post) => {
       const party = post.side === 'maj' ? maj : post.side === 'min' ? GR.other(maj) : (U.chance(0.5) ? maj : GR.other(maj));
-      let p;
-      const fed = bodyKey === 'ushouse' || bodyKey === 'ussenate';
-      if (fed) p = extMember(s, party, bodyKey);
-      else {
-        const pool = members(s, bodyKey).filter((m) => m.party === party && !used.has(m.id)).sort((a, b) => (b.terms[offOfBody(bodyKey)] || 0) + b.infl / 30 - (a.terms[offOfBody(bodyKey)] || 0) - a.infl / 30);
-        p = pool[0];
-      }
+      const pool = members(s, bodyKey).filter((m) => m.party === party && !used.has(m.id) && !m.isPlayer).sort((a, b) => senior(bodyKey)(b) - senior(bodyKey)(a));
+      const p = pool[0];
       if (p) { B.lead[post.k] = p.id; used.add(p.id); p.lead = { body: bodyKey, post: post.k }; p.infl = Math.max(p.infl, post.inf + 20); }
     });
   }
@@ -432,14 +330,20 @@ GR.world = (function () {
 
   // A reusable member of Congress from another state (sponsors bills, holds leadership).
   function extMember(s, party, bodyKey) {
-    s.nat.pool = s.nat.pool || {};
-    const key = bodyKey + party;
-    const pool = (s.nat.pool[key] || []).filter((id) => s.pols[id] && s.pols[id].alive);
-    if (pool.length >= 14) { s.nat.pool[key] = pool; return s.pols[U.pick(pool)]; }
-    const p = extPol(s, party, bodyKey);
-    p.seatExt = bodyKey;
-    pool.push(p.id);
-    s.nat.pool[key] = pool;
+    const pool = members(s, bodyKey).filter((m) => m.party === party && !m.isPlayer && !m.lead);
+    return pool.length ? U.pick(pool) : extPol(s, party, bodyKey);
+  }
+
+  // A member of Congress from another state.
+  function fedMember(s, body, ab, n, cls, lean, party, fresh) {
+    const lvl = body === 'ussenate' ? 7 : 5;
+    const p = newPol(s, { party, lean, level: lvl, st: ab, ext: true, age: fresh ? U.randInt(34, 62) : U.randInt(36, 78), rec: U.randInt(20, 55) });
+    p.fed = { body, st: ab, n, cls, lean: U.round(lean, 1) };
+    const off = body === 'ussenate' ? 'ussenate' : 'ushouse';
+    p.terms[off] = fresh ? 0 : Math.max(0, Math.round(U.rand() * (body === 'ussenate' ? 3 : 6)));
+    p.title = body === 'ussenate' ? `U.S. Senator (${ab})` : `U.S. Representative (${ab}-${String(n).padStart(2, '0')})`;
+    p.hist.push({ y: U.yearOf(s.week) - p.terms[off] * (body === 'ussenate' ? 6 : 2), t: p.title });
+    p.since = U.yearOf(s.week) - p.terms[off] * (body === 'ussenate' ? 6 : 2);
     return p;
   }
 
@@ -456,48 +360,35 @@ GR.world = (function () {
     return p;
   }
 
-  // Committees per body, each with members and a chair from the majority.
-  function setupCommittees(s, bodyKey) {
-    const B = s.bodies[bodyKey];
-    const J = GR.BODIES[bodyKey].jur;
-    const list = GR.COMMITTEES[J === 'school' ? 'school' : J === 'city' ? 'city' : J];
-    const maj = majority(s, bodyKey);
-    B.comm = {};
-    const ms = members(s, bodyKey);
-    list.forEach((c) => { B.comm[c.k] = { chair: null, members: [] }; });
-    ms.forEach((m) => { if (m.isPlayer) return; const c = U.pick(list); B.comm[c.k].members.push(m.id); m.comm = c.k; });
-    list.forEach((c) => {
-      const pool = B.comm[c.k].members.map((id) => s.pols[id]).filter((m) => m.party === maj).sort((a, b) => (b.terms[offOfBody(bodyKey)] || 0) - (a.terms[offOfBody(bodyKey)] || 0));
-      B.comm[c.k].chair = pool[0] ? pool[0].id : null;
-    });
-  }
+  // Committees per body (see committees.js).
+  function setupCommittees(s, bodyKey) { GR.comm.setup(s, bodyKey); }
 
   // ---------- Nation ----------
   function setupNation(s) {
     const home = s.home.state;
-    const nat = { env: U.round(U.gauss() * 1.5, 1), presParty: 'R', econ: { growth: 2.0, cycle: 0 }, house: { D: 0, R: 0 }, senate: { D: 0, R: 0 }, other: {}, ec: {} };
+    const nat = { env: U.round(U.gauss() * 1.5, 1), presParty: 'R', econ: { growth: 2.0, cycle: 0 }, other: {}, ec: {}, fed: { ushouse: [], ussenate: [] } };
     s.nat = nat;
-    // Other states' House districts and Senate seats.
-    let hd = 0, hr = 0, sd = 0, sr = 0;
+    // Every other state's House districts and Senate seats get a member.
     GR.STATES.forEach((st) => {
       if (st.ab === home) return;
       const o = { cds: [], sen: {} };
       const r = U.seeded('cds' + st.ab);
-      for (let i = 0; i < st.cd; i++) {
+      const n = st.ab === 'DC' ? 0 : st.cd;
+      for (let i = 0; i < n; i++) {
         const lean = st.lean + r.gauss() * 11;
         const party = lean + r.gauss() * 3 > -1 ? 'R' : 'D';
-        o.cds.push({ lean: U.round(lean, 1), party });
-        party === 'R' ? hr++ : hd++;
+        const p = fedMember(s, 'ushouse', st.ab, i + 1, null, lean, party);
+        o.cds.push({ lean: U.round(lean, 1), id: p.id });
+        nat.fed.ushouse.push(p.id);
       }
       st.sc.forEach((c) => {
         const party = st.lean + r.gauss() * 6 > 0 ? 'R' : 'D';
-        o.sen[c] = party;
-        party === 'R' ? sr++ : sd++;
+        const p = fedMember(s, 'ussenate', st.ab, 0, c, st.lean, party);
+        o.sen[c] = p.id;
+        nat.fed.ussenate.push(p.id);
       });
       nat.other[st.ab] = o;
     });
-    nat.house = { D: hd, R: hr };
-    nat.senate = { D: sd, R: sr };
     nat.president = extPol(s, 'R', null, 'President').id;
     s.pols[nat.president].title = 'President';
     s.pols[nat.president].terms.president = 2;
@@ -568,6 +459,6 @@ GR.world = (function () {
     CAUCUSES, TRAITS, METRICS, isFiscal, stance, axes, ideoLabel, caucusOf, newPol, fullName, ageOf,
     seatTitle, seatParts, seatProfile, nationProfile, clearMemo, homeSeats, nextElection, termYears, makeSeat, fillSeat, pickZipIn,
     bodySeats, composition, majority, members, setupLeadership, setupCommittees, extPol, extMember, offOfBody, create,
-    totals, spendLines, revenueLines, policyScale, initialLaw, makeJur,
+    totals, initialLaw, makeJur, fedMember,
   };
 })();

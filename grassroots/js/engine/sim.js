@@ -77,8 +77,10 @@ GR.sim = (function () {
     if (me.seat !== seat.id) return;
     me.seat = null;
     if (me.lead) { const B = s.bodies[me.lead.body]; if (B) delete B.lead[me.lead.post]; me.lead = null; }
-    Object.values(s.bodies).forEach((B) => Object.values(B.comm).forEach((c) => { c.members = c.members.filter((id) => id !== 'me'); if (c.chair === 'me') c.chair = null; }));
+    Object.values(s.bodies).forEach((B) => Object.values(B.comm).forEach((c) => { c.members = c.members.filter((id) => id !== 'me'); if (c.chair === 'me') c.chair = null; if (c.rank === 'me') c.rank = null; if (c.sen) delete c.sen.me; }));
     me.comm = null;
+    s.steer = null;
+    s.whipDebt = null;
     if (me.prevJob && me.job === 'unemployed') { me.job = me.prevJob; me.prevJob = null; }
     log(s, `Left office as ${W().seatTitle(s, seat)}.`);
   }
@@ -89,6 +91,8 @@ GR.sim = (function () {
     if (!seat) return { ok: false };
     leaveOffice(s, seat);
     const p = W().fillSeat(s, seat, GR.OFFICES[seat.off].level, me.party);
+    const cb = { school: 'school', council: 'council', statehouse: 'house', statesenate: 'senate', ushouse: 'ushouse', ussenate: 'ussenate' }[seat.off];
+    if (cb) GR.comm.join(s, cb, p);
     news(s, `${me.fn} ${me.ln} resigns. ${W().fullName(p)} appointed to fill ${W().seatTitle(s, seat)}.`, 'gov');
     if (s.presRace && seat.off === 'president') s.nat.president = p.id;
     return { ok: true, msg: 'You resigned from office.' };
@@ -106,18 +110,32 @@ GR.sim = (function () {
           seat.holder = null;
           if (p.lead) GR.elect.clearLead(s, p);
           const n = W().fillSeat(s, seat, GR.OFFICES[seat.off].level, p.party);
+          const cb = { school: 'school', council: 'council', statehouse: 'house', statesenate: 'senate' }[seat.off];
+          if (cb) GR.comm.inherit(s, cb, p.id, n.id);
           news(s, `${W().fullName(p)} (${p.party}) has died. ${W().fullName(n)} appointed to ${W().seatTitle(s, seat)}.`, 'gov');
         }
         p.seat = null;
       }
+      if (!p.alive && p.fed) {
+        const f = p.fed;
+        const n = W().fedMember(s, f.body, f.st, f.n, f.cls, f.lean, p.party, true);
+        const o = s.nat.other[f.st];
+        if (f.body === 'ushouse' && o) { const d = o.cds.find((x) => x.id === p.id); if (d) d.id = n.id; }
+        if (f.body === 'ussenate' && o) o.sen[f.cls] = n.id;
+        const list = s.nat.fed[f.body]; const i = list.indexOf(p.id); if (i >= 0) list[i] = n.id;
+        GR.comm.inherit(s, f.body, p.id, n.id);
+        if (p.lead) GR.elect.clearLead(s, p);
+        p.fed = null;
+      }
       if (p.seat) { p.pp += Math.round(GR.OFFICES[s.seats[p.seat].off].level * 60 * (0.5 + U.rand())); p.infl = U.clamp(p.infl + 2, 0, 100); }
+      if (p.fed) { p.pp += Math.round(300 * (0.5 + U.rand())); p.infl = U.clamp(p.infl + 1, 0, 100); }
     });
     // Forget long-gone, minor politicians to keep saves small.
     const keep = new Set(Object.keys(s.rel || {}));
     Object.values(s.races || {}).flat().forEach((r) => r.cands.forEach((id) => keep.add(id)));
     if (s.presRace) s.presRace.cands.forEach((id) => keep.add(id));
     Object.values(s.bodies).forEach((B) => Object.values(B.lead).forEach((id) => keep.add(id)));
-    Object.values(s.pols).forEach((p) => { if (!p.isPlayer && !p.seat && !keep.has(p.id) && !p.lead && (!p.alive || p.retired || p.hist.length <= 1 || W().ageOf(s, p) > 75)) delete s.pols[p.id]; });
+    Object.values(s.pols).forEach((p) => { if (!p.isPlayer && !p.seat && !p.fed && !keep.has(p.id) && !p.lead && (!p.alive || p.retired || p.hist.length <= 1 || W().ageOf(s, p) > 75)) delete s.pols[p.id]; });
   }
 
   // Rebuild city-level government after moving to a new city.

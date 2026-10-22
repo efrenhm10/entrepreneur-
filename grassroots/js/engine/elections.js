@@ -406,27 +406,49 @@ GR.elect = (function () {
     });
   }
 
+  // Every other state's House and Senate races; winners replace losing or retiring members.
   function otherStates(s, year) {
     const env = s.nat.env;
-    let hd = 0, hr = 0;
+    let flips = 0;
     Object.keys(s.nat.other).forEach((ab) => {
       const o = s.nat.other[ab];
-      o.cds.forEach((d) => {
-        const inc = d.party === 'R' ? 1.8 : -1.8;
-        d.party = d.lean + env + inc + U.gauss() * 3.5 > 0 ? 'R' : 'D';
-        d.party === 'R' ? hr++ : hd++;
+      o.cds.forEach((d, i) => {
+        const p = s.pols[d.id];
+        const incParty = p ? p.party : 'R';
+        const retire = !p || !p.alive || W().ageOf(s, p) > 79 || U.chance(0.07);
+        const inc = retire ? 0 : incParty === 'R' ? 2 : -2;
+        const party = d.lean + env + inc + U.gauss() * 3.5 > 0 ? 'R' : 'D';
+        if (retire || party !== incParty) {
+          if (p) { p.fed = null; p.retired = true; p.lead && GR.elect.clearLead(s, p); }
+          const n = W().fedMember(s, 'ushouse', ab, i + 1, null, d.lean, party, true);
+          replaceFed(s, 'ushouse', d.id, n.id);
+          d.id = n.id;
+          if (party !== incParty) flips++;
+        } else p.terms.ushouse = (p.terms.ushouse || 0) + 1;
       });
       const st = GR.STATE[ab];
       st.sc.forEach((c) => {
         if ((year - { 1: 2030, 2: 2032, 3: 2028 }[c]) % 6 !== 0) return;
-        const inc = o.sen[c] === 'R' ? 2 : -2;
-        o.sen[c] = st.lean + env + inc + U.gauss() * 4.5 > 0 ? 'R' : 'D';
+        const p = s.pols[o.sen[c]];
+        const incParty = p ? p.party : 'R';
+        const retire = !p || !p.alive || W().ageOf(s, p) > 80 || U.chance(0.12);
+        const inc = retire ? 0 : incParty === 'R' ? 2.5 : -2.5;
+        const party = st.lean + env + inc + U.gauss() * 4.5 > 0 ? 'R' : 'D';
+        if (retire || party !== incParty) {
+          if (p) { p.fed = null; p.retired = true; p.lead && GR.elect.clearLead(s, p); }
+          const n = W().fedMember(s, 'ussenate', ab, 0, c, st.lean, party, true);
+          replaceFed(s, 'ussenate', o.sen[c], n.id);
+          o.sen[c] = n.id;
+        } else p.terms.ussenate = (p.terms.ussenate || 0) + 1;
       });
     });
-    s.nat.house = { D: hd, R: hr };
-    let sd = 0, sr = 0;
-    Object.values(s.nat.other).forEach((o) => Object.values(o.sen).forEach((p) => { p === 'R' ? sr++ : sd++; }));
-    s.nat.senate = { D: sd, R: sr };
+    return flips;
+  }
+  function replaceFed(s, body, oldId, newId) {
+    const list = s.nat.fed[body];
+    const i = list.indexOf(oldId);
+    if (i >= 0) list[i] = newId; else list.push(newId);
+    GR.comm.inherit(s, body, oldId, newId);
   }
 
   // ---------- Taking office (first week of January) ----------
@@ -477,13 +499,7 @@ GR.elect = (function () {
 
   function joinCommittee(s, p, seat) {
     const bk = { school: 'school', council: 'council', statehouse: 'house', statesenate: 'senate', ushouse: 'ushouse', ussenate: 'ussenate' }[seat.off];
-    const B = bk && s.bodies[bk];
-    if (!B) return;
-    const ks = Object.keys(B.comm);
-    if (!ks.length) return;
-    const k = U.pick(ks);
-    B.comm[k].members.push(p.id);
-    p.comm = k;
+    if (bk && s.bodies[bk]) GR.comm.join(s, bk, p);
   }
 
   function clearLead(s, p) {
