@@ -71,7 +71,8 @@ GR.uiGame = (function () {
       const it = s.inbox.find((x) => x.id === m.id);
       if (!it) { ui.modal = null; return ''; }
       inner = `<div class="band">${esc(it.title)}</div><div class="sheet stack"><div class="small muted">${U.fmtDate(it.w, true)}</div><pre class="msgbody">${esc(it.body)}</pre>
-        <div class="stack-s">${it.choices.map((c) => ui.btn(esc(c.label), 'choose', it.id + '|' + c.act, 'bb wide')).join('')}</div>
+        ${it.chips && it.chips.length ? `<div class="impact">${it.chips.map((c) => `<span class="ichip ${c.good ? 'good' : 'bad'}">${esc(c.t)}</span>`).join('')}</div>` : ''}
+        <div class="stack-s">${it.choices.map((c) => ui.btn(esc(c.label), 'choose', it.id + '|' + c.act, 'bb wide', !!c.dis)).join('')}</div>
         ${it.data && it.data.race ? ui.btn('View full results', 'viewrace', it.data.year + '|' + it.data.race, 'bgr') : ''}</div>`;
     } else if (m.kind === 'pol') inner = GR.uiWorld.polModal(s, m.id);
     else if (m.kind === 'menu') inner = menu(s);
@@ -242,8 +243,8 @@ GR.uiGame = (function () {
     const before = s.inbox.length;
     GR.sim.endTurn(s);
     ui.save();
-    const fresh = s.inbox.slice(0, Math.max(0, s.inbox.length - before + 1)).find((x) => !x.done && (x.kind === 'result' || x.kind === 'debate' || x.kind === 'vp' || x.kind === 'event'));
-    if (fresh && (fresh.kind === 'result' || fresh.kind === 'debate' || fresh.kind === 'vp')) ui.modal = { kind: 'msg', id: fresh.id };
+    const fresh = s.inbox.slice(0, Math.max(0, s.inbox.length - before + 1)).find((x) => !x.done && (x.kind === 'result' || x.kind === 'debate' || x.kind === 'vp' || x.kind === 'event' || x.kind === 'scene'));
+    if (fresh && (fresh.kind === 'result' || fresh.kind === 'debate' || fresh.kind === 'vp' || fresh.kind === 'scene')) ui.modal = { kind: 'msg', id: fresh.id };
   });
   A('msave', () => { ui.toast(GR.state.save(ui.s) ? 'Game saved in this browser.' : 'This browser blocked saving. Use Copy save code instead.'); });
   A('mexport', () => {

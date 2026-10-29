@@ -369,6 +369,9 @@ GR.fisc = (function () {
       lines[k] = { name: T.name, amt };
     });
     Object.entries(F.fees || {}).forEach(([name, v]) => { lines['fee:' + name] = { name, amt: v * N }; });
+    // Tax abatements granted to companies you recruited.
+    const ab = GR.develop && J.dev ? GR.develop.abated(J) : 0;
+    if (ab > 0) lines.abate = { name: 'Business tax abatements', amt: -(F.tax.corp != null ? ab * F.tax.corp / 100 * 0.12 : ab * (F.tax.prop || 10) / 1000 * 1.5) };
     if (F.lvl === 'nation') {
       const trade = J.law.trade != null ? J.law.trade : 3;
       const tf = [0.25, 0.45, 0.7, 1.0, 1.5][trade];
@@ -549,7 +552,7 @@ GR.fisc = (function () {
       m.y10 = (nat ? nat.mac.y10 : 4.3) * 0.78 + ratingOf(F.rating)[2];
     }
     m.effRate += (m.y10 - m.effRate) * 0.04;
-    const ustar = m.u0 + (F.crises.education ? (F.crises.education.s - F.crises.education.s0) * 0.01 : 0) + regDrag * 0.5;
+    const ustar = m.u0 + (F.crises.education ? (F.crises.education.s - F.crises.education.s0) * 0.01 : 0) + regDrag * 0.5 - (GR.develop ? GR.develop.jobsPct(J) * 0.55 : 0);
     m.u = U.clamp(0.75 * m.u + 0.25 * (ustar - 0.45 * gapEff), 1.5, 25);
     m.cc = U.clamp(0.85 * m.cc + 0.15 * (100 + 4 * (m.g - 2) - 6 * (m.u - 4.3) - 4 * (m.pi - 2.5) - (F.shutdown ? 8 : 0) - (dissatisfaction(J) - (F.vd0 || 50)) * 0.3), 20, 160);
     // Levels.

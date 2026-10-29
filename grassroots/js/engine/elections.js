@@ -230,6 +230,7 @@ GR.elect = (function () {
       });
     });
     if (pres) GR.pres.openPres(s, year);
+    GR.scenes.openYearHook(s, year, races);
   }
 
   function livesIn(s, p, race) {

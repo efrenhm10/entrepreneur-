@@ -243,3 +243,12 @@ label.f > span { font-weight: 700; }
   .sheet { padding: 8px; }
   .status { gap: 2px 14px; font-size: .9rem; }
 }
+
+/* Impact chips: what a decision moved */
+.impact { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.ichip { font-size: .8rem; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); background: var(--row-2); }
+.ichip.good { color: var(--good, #1a7f37); border-color: currentColor; }
+.ichip.bad { color: var(--bad, #c62828); border-color: currentColor; }
+.pbar { height: 8px; border-radius: 4px; background: var(--row-2); border: 1px solid var(--line); overflow: hidden; }
+.pbar i { display: block; height: 100%; }
+.stars { letter-spacing: 1px; color: #c58a00; white-space: nowrap; }

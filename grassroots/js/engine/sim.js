@@ -36,6 +36,7 @@ GR.sim = (function () {
     const me = s.pols.me;
     let h = 40;
     if (me.traits.includes('workhorse')) h += 6;
+    if (me.seat && GR.cabinet) h += GR.cabinet.hoursBonus(s);
     const job = GR.JOB[me.job];
     if (job && job.salary && !GR.life.fullTimeOffice(s)) h -= 18;
     if (me.schoolUntil) h -= 10;
@@ -52,7 +53,7 @@ GR.sim = (function () {
     let v = 1 + me.standing / 50;
     if (me.seat) {
       const o = GR.OFFICES[s.seats[me.seat].off];
-      v += o.level * 1.6 + (me.app - 50) / 12;
+      v += o.level * 0.9 + (me.app - 50) / 15;
       if (me.lead) { const post = GR.LEADERSHIP[me.lead.body].find((p) => p.k === me.lead.post); v += post ? post.rank * 2.5 : 0; }
     }
     v += (me.respect || 0) / 25 + me.recLocal / 60 + me.recState / 40 + me.recNat / 25;
@@ -252,6 +253,8 @@ GR.sim = (function () {
     if (s.over) return;
     if (s.hoursLeft > 4) { me.stress = U.clamp(me.stress - s.hoursLeft * 0.1, 0, 100); }
     me.pp += ppIncome(s);
+    // Political capital is use-it-or-lose-it: hoards above 100 erode.
+    if (me.pp > 100) me.pp = 100 + (me.pp - 100) * 0.98;
     // Advance the calendar.
     s.week++;
     const y = U.yearOf(s.week);
@@ -259,6 +262,10 @@ GR.sim = (function () {
     GR.gov.week(s);
     if (U.isYearStart(s.week)) npcYear(s);
     GR.events.week(s);
+    GR.develop.week(s);
+    if (U.isMonthStart(s.week) && me.seat) { GR.power.month(s); GR.cabinet.month(s); GR.scenes.month(s); }
+    if (U.isYearStart(s.week)) { GR.develop.yearTick(s); if (me.seat) GR.scenes.report(s); }
+    GR.scenes.week(s);
     // Recognition fades a little without activity.
     if (s.week % 4 === 0) { me.recLocal = U.clamp(me.recLocal * 0.995, 0, 100); me.recState = U.clamp(me.recState * 0.996, 0, 100); }
     me.scandal = Math.max(0, (me.scandal || 0) - 0.15);
@@ -276,6 +283,15 @@ GR.sim = (function () {
     if (!it) return null;
     let out = '';
     if (act === 'close') { it.done = true; return null; }
+    if (act.startsWith('sc:')) {
+      const i = +act.slice(3);
+      if (it.choices[i] && it.choices[i].dis && !GR.scenes.canPay(s, it.data.sc.choices[i].fx)) return 'You cannot afford that right now.';
+      out = GR.scenes.resolve(s, it, i);
+      it.body += '\n\n→ ' + it.data.sc.choices[i].label + '. ' + out.split('\n')[0];
+      it.choices = [{ label: 'OK', act: 'close' }];
+      it.answered = true;
+      return out;
+    }
     if (act.startsWith('ev:')) {
       const [, key, i] = act.split(':');
       out = GR.events.resolve(s, key, +i, it.data);

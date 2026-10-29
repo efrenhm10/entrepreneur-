@@ -19,6 +19,9 @@ GR.uiOffice = (function () {
     const tasks = G().tasks(s).length;
     const steer = s.steer && !s.steer.done && s.steer.body === bk;
     const tabs = [['brief', 'Briefing'], ['bills', 'Bill Constructor'], ['docket', 'Docket', tasks || ''], ['deals', 'Negotiations'], ['rolls', 'Roll Calls'], ['budget', 'Budget'], ['econ', 'Economy']];
+    tabs.push(['power', 'Power Bases']);
+    if (seat.off !== 'school') tabs.push(['cabinet', off.exec ? 'Cabinet' : 'Staff']);
+    if (off.jur !== 'school') tabs.push(['develop', off.exec ? 'Development' : 'District Development']);
     if (bk) tabs.push(['committees', 'Committees', steer ? '!' : ''], ['leadership', 'Leadership'], ['colleagues', 'Colleagues']);
     tabs.push(['district', 'District'], ['schedule', 'Schedule']);
     if (off.exec) tabs.push(['exec', 'Executive Orders']);
@@ -26,8 +29,8 @@ GR.uiOffice = (function () {
     const V = GR.uiGov;
     const body = {
       brief: () => V.briefing(s), bills: () => V.constructor(s), docket: () => V.docket(s), deals: () => V.negotiations(s), rolls: () => V.rolls(s),
-      budget: () => V.budgetView(s), econ: () => V.economy(s), committees: () => V.committees(s), leadership: () => leadership(s, bk), colleagues: () => colleagues(s, bk),
-      district: () => overview(s, seat), schedule: () => schedule(s), exec: () => execOrders(s),
+      budget: () => V.budgetView(s), econ: () => V.economy(s), power: () => GR.uiExec.power(s), cabinet: () => GR.uiExec.cabinet(s), develop: () => GR.uiExec.develop(s), committees: () => V.committees(s), leadership: () => leadership(s, bk), colleagues: () => colleagues(s, bk),
+      district: () => GR.uiExec.dossier(s) + overview(s, seat), schedule: () => schedule(s), exec: () => execOrders(s),
     }[cur] || (() => V.briefing(s));
     return `${ui.tabs('office', tabs)}<div class="sheet">${body()}</div>`;
   }

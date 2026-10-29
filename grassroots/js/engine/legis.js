@@ -274,6 +274,8 @@ GR.legis = (function () {
     const ex = G().execOf(s, b.jur);
     if (ex && ex.party === p.party && (b.spon === ex.id || b.kind === 'budget')) pc -= reb * 0.4;
     pc = U.clamp(pc, -1, 1);
+    // Economic development deals and megaproject authorizations.
+    if (b.dev && GR.develop) { const x = GR.develop.voteTerms(s, p, b); it = U.clamp(it + x.it, -1, 1); di = U.clamp(di + x.di, -1, 1); ae = U.clamp(x.ae, -1, 1); pc = U.clamp(pc + x.pc, -1, 1); }
     const score = WEIGHTS.it * it + WEIGHTS.di * di + WEIGHTS.ae * ae + WEIGHTS.pc * pc;
     return { it, di, ae, pc, score, reb };
   }
@@ -285,7 +287,7 @@ GR.legis = (function () {
     const spon = s.pols[b.spon];
     const L = leanOf(s, b);
     let v = party === 'D' ? L : -L;
-    if (spon) v += spon.party === party ? 0.6 : -0.3;
+    if (spon) v += b.dev ? (spon.party === party ? 0.3 : -0.05) : spon.party === party ? 0.6 : -0.3;
     if (b.kind === 'cr') v += 0.5;
     if (b.kind === 'budget') { const ex = G().execOf(s, b.jur); if (ex) v += ex.party === party ? 0.7 : -0.4; }
     const line = v > 0.2 ? 1 : v < -0.2 ? -1 : 0;
@@ -502,6 +504,7 @@ GR.legis = (function () {
   }
 
   function kill(s, b, why) {
+    if (b.dev && GR.develop) GR.develop.onKill(s, b);
     b.stage = 'dead'; b.why = why; b.done = s.week; b.task = null;
     if (b.spon === 'me') { GR.sim.msgInbox(s, 'Your bill failed', `Your ${b.title} ${why}.`); G().addRespect(s, -1); }
     if (b.kind === 'budget') budgetFailed(s, b.jur);
@@ -509,6 +512,7 @@ GR.legis = (function () {
   }
 
   function enact(s, J, b) {
+    if (b.dev && GR.develop) GR.develop.onEnact(s, b);
     b.stage = 'law'; b.done = s.week;
     FX().apply(J, b);
     (b.prov.policy || []).forEach((x) => { J.law[x.k] = x.to; });
@@ -603,6 +607,7 @@ GR.legis = (function () {
     let c = (8 + n * 4) * (0.6 + lvl * 0.35);
     if (b.kind === 'reconciliation') c *= 1.5;
     if (me.traits.includes('wonk')) c *= 0.7;
+    c *= 1 - (GR.cabinet ? GR.cabinet.billDiscount(s) : 0);
     return Math.round(c);
   }
 
