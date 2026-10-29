@@ -176,7 +176,8 @@ GR.elect = (function () {
   function termLimited(s, p, off) {
     if (off === 'president') return (p.terms.president || 0) >= 2;
     if (off === 'governor') { const gl = GR.STATE[s.home.state].gl; return gl > 0 && (p.terms.governor || 0) >= gl; }
-    return false;
+    // Legislators in term-limit states, and mayors and council members under city charters.
+    return GR.watch ? GR.watch.limited(s, p, off) : false;
   }
 
   function makeRace(s, seat, year) {
@@ -202,7 +203,9 @@ GR.elect = (function () {
       const inc = s.pols[race.inc];
       if (!inc || inc.isPlayer) return;
       const age = W().ageOf(s, inc);
-      const retire = termLimited(s, inc, race.off) || (age >= 78 ? U.chance(0.8) : age >= 70 ? U.chance(0.4) : U.chance(0.06)) || (inc.app < 38 && U.chance(0.3));
+      // Most incumbents announced their plans last year; the rest decide now.
+      const plan = GR.watch && GR.watch.planFor(s, race.seat, year);
+      const retire = termLimited(s, inc, race.off) || (plan ? plan.kind !== 'run' : (age >= 78 ? U.chance(0.8) : age >= 70 ? U.chance(0.4) : U.chance(0.06)) || (inc.app < 38 && U.chance(0.3)));
       if (retire) { race.retiring = inc.id; return; }
       addCand(s, race, inc);
     });
@@ -222,7 +225,7 @@ GR.elect = (function () {
           if (want <= 0) break;
           if (p.amb < 0.35 || !U.chance(open ? 0.55 : 0.25)) continue;
           const own = s.seats[p.seat];
-          if (own.next === year) { const ownRace = races.find((r) => r.seat === own.id); if (ownRace) { ownRace.cands = ownRace.cands.filter((x) => x !== p.id); ownRace.leaving = p.id; } }
+          if (own.next === year) { const ownRace = races.find((r) => r.seat === own.id); if (ownRace) { ownRace.cands = ownRace.cands.filter((x) => x !== p.id); ownRace.leaving = p.id; if (GR.watch) GR.watch.leaving(s, own, p, race); } }
           addCand(s, race, p);
           want--;
         }
@@ -271,9 +274,8 @@ GR.elect = (function () {
     if (s.campaign) return { ok: false, why: 'You are already running for office.' };
     if (s.week < declareOpenWeek(year)) return { ok: false, why: `Filing opens ${U.fmtDate(declareOpenWeek(year))}.` };
     if (s.week > filingWeek(year, seat.off)) return { ok: false, why: 'The filing deadline has passed.' };
+    if (termLimited(s, me, seat.off) && (seat.off === 'president' || seat.off === 'statehouse' || seat.off === 'statesenate' || (me.seat && s.seats[me.seat].off === seat.off))) return { ok: false, why: `Term-limited (${GR.watch ? GR.watch.limitText(s, seat.off).toLowerCase() : 'limit reached'}).` };
     if (me.seat === seatId && year === seat.next && s.seats[seatId].holder === 'me') return { ok: true, re: true, year };
-    if (seat.off === 'governor' && termLimited(s, me, 'governor') && me.seat === 'gov') return { ok: false, why: 'Term-limited.' };
-    if (seat.off === 'president' && termLimited(s, me, 'president')) return { ok: false, why: 'Term-limited.' };
     return { ok: true, year };
   }
 

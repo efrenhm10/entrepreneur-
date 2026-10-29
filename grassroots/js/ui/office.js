@@ -35,6 +35,7 @@ GR.uiOffice = (function () {
       + ui.panel('Trends', trends(s, J));
     const col3 = ui.panel('On your desk', desk(s))
       + ui.panel('Advisers say', advisories(s).map(([txt, lbl, act, arg, urgent]) => `<div class="advice ${urgent ? 'urgent' : ''}"><span>${esc(txt)}</span>${lbl ? ui.btn(lbl, act, arg || '', 'bgr sm') : ''}</div>`).join('') || '<p class="muted small">All quiet.</p>')
+      + ui.panel('Races to watch', GR.uiCampaign.watchList(s, 4) + `<div class="row" style="margin-top:6px">${ui.btn('All races', 'tab', 'campaign', 'bgr sm')}</div>`)
       + ui.panel('Latest cables', s.news.slice(0, 12).map((n) => `<p class="cable ${n.kind === 'gov' ? 'gov' : ''}"><small>${U.fmtDate(n.w)}</small>${esc(n.t)}</p>`).join('') + `<div class="row" style="margin-top:6px">${ui.btn('All news', 'gotab', 'news|headlines', 'bgr sm')}</div>`);
     return `<div class="vhead"><h2>Situation Room</h2><span class="sub">${esc(G().briefingLabel(s))}</span></div><div class="grid3"><div>${col1}</div><div>${col2}</div><div>${col3}</div></div>`;
   }
@@ -158,6 +159,12 @@ GR.uiOffice = (function () {
     if (me.pp > 95) out.push(['Your political capital is near the cap and starts eroding above 100. Spend it on bills, deals or seats.', '', '']);
     const y = U.yearOf(s.week);
     if (seat.next === y && !s.campaign && s.week < GR.elect.generalWeek(y)) out.push([`Your seat is up this November. Declare for re-election.`, 'Campaign', 'tab', 'campaign', true]);
+    // An open seat a step up, coming soon.
+    if (GR.watch) {
+      const up = GR.watch.upcoming(s).filter((x) => x.open && x.away <= 1 && x.off.level > off.level && x.canRun.ok !== false).sort((a, b) => a.next - b.next)[0]
+        || GR.watch.upcoming(s).filter((x) => x.open && x.away <= 1 && x.off.level > off.level).sort((a, b) => a.next - b.next)[0];
+      if (up) out.push([`${up.p ? `${W().fullName(up.p)} is ${up.tags.some((t) => t[0] === 'Term-limited') ? 'term-limited' : 'retiring'}` : 'A seat is vacant'}: the ${up.next} race for ${GR.OFFICES[up.seat.off].name.toLowerCase()} is open.`, 'Races', 'tab', 'campaign']);
+    }
     if (s.hoursLeft >= 20) out.push([`${s.hoursLeft} hours unspent this week. Meet colleagues, hold events, or court a power base.`, 'Schedule', 'gotab', 'power|schedule']);
     return out.slice(0, 7);
   }
@@ -172,7 +179,7 @@ GR.uiOffice = (function () {
         <p class="small">You do not hold office yet. Build name recognition and party connections, then declare for a race. Most careers start on the school board or city council, which hold elections in odd-numbered years.</p>
         <div class="row" style="margin-top:8px">${ui.btn('Find a race to run in', 'tab', 'campaign', 'bo')}${ui.btn('Community activities', 'gotab', 'profile|life', 'bgr')}</div>`)}</div>
       <div>${ui.panel(`Key indicators · ${esc(J.name)}`, indicators(s, J))}${ui.panel('Crises & needs', crises(s, J))}</div>
-      <div>${ui.panel('Your resources', ui.kv([['Political points', U.num(me.pp)], ['War chest', U.money(me.warChest)], ['Savings', U.money(me.money)], ['Donor network', me.network + ' contacts']]))}${ui.panel('Latest cables', s.news.slice(0, 10).map((n) => `<p class="cable"><small>${U.fmtDate(n.w)}</small>${esc(n.t)}</p>`).join('') || '<p class="muted small">Quiet.</p>')}</div>
+      <div>${ui.panel('Races to watch', GR.uiCampaign.watchList(s, 5) + `<div class="row" style="margin-top:6px">${ui.btn('All races', 'tab', 'campaign', 'bgr sm')}</div>`)}${ui.panel('Your resources', ui.kv([['Political points', U.num(me.pp)], ['War chest', U.money(me.warChest)], ['Savings', U.money(me.money)], ['Donor network', me.network + ' contacts']]))}${ui.panel('Latest cables', s.news.slice(0, 10).map((n) => `<p class="cable"><small>${U.fmtDate(n.w)}</small>${esc(n.t)}</p>`).join('') || '<p class="muted small">Quiet.</p>')}</div>
     </div>`;
   }
 

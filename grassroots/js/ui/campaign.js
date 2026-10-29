@@ -21,6 +21,19 @@ GR.uiCampaign = (function () {
     return `${ui.tabs('campaign', tabs)}<div class="sheet">${f(s, r)}</div>`;
   }
 
+  // ---------- Races to watch ----------
+  // Every seat covering your home: who holds it, when it's up, and what makes it a good time.
+  const tagHtml = (tags) => tags.map(([t, c]) => `<span class="chip ${c === 'good' ? 'tgood' : c === 'bad' ? 'tbad' : c === 'warn' ? 'twarn' : ''}">${esc(t)}</span>`).join(' ');
+  function watchList(s, n) {
+    if (!GR.watch) return '';
+    const all = GR.watch.upcoming(s);
+    const list = n ? all.slice().sort((a, b) => b.open - a.open || b.score - a.score || a.next - b.next).slice(0, n) : all;
+    if (!list.length) return '<p class="muted small">No races near you.</p>';
+    return list.map((x) => `<div class="opp${x.open ? ' openseat' : ''}"><span class="t"><b class="small">${esc(x.off.name)}</b> <span class="tiny muted">${esc(W().seatTitle(s, x.seat))}</span><br>
+      <span class="tiny">${x.next} · ${x.away <= 0 ? 'this year' : x.away === 1 ? 'next year' : `in ${x.away} years`} · ${x.p ? `${ui.plink(s, x.p.id)}` : 'vacant'}</span><br>${tagHtml(x.tags)}</span>
+      ${x.canRun.ok ? ui.btn('Declare', 'declare', x.id, 'bb sm') : `<span class="tiny muted" style="max-width:130px;text-align:right">${esc(x.canRun.why)}</span>`}</div>`).join('');
+  }
+
   // ---------- Not running: the list of races ----------
   function runList(s) {
     const me = s.pols.me;
@@ -38,12 +51,18 @@ GR.uiCampaign = (function () {
         const y = seat.next;
         const fee = E().filingFee(s, seat);
         const pr = seat.off === 'president' ? null : W().seatProfile(s, seat);
-        rows.push(`<tr class="${seat.holder === 'me' ? 'me' : ''}"><td><b>${esc(GR.OFFICES[off].name)}</b><br><span class="small">${esc(W().seatTitle(s, seat))}</span></td><td>${inc ? (inc.isPlayer ? '<b>You</b>' : ui.plink(s, inc.id)) : '<span class="muted">Vacant</span>'}</td><td class="small">${pr ? leanLabel(pr.lean) + '<br>' + U.num(pr.pop) + ' people' : 'Nation'}</td><td>${y}<br><span class="small muted">file by ${U.fmtDate(E().filingWeek(y, off))}</span></td><td>${chk.ok ? ui.btn(chk.re ? 'Run for re-election' : `Declare (${U.money(fee)})`, 'declare', id, 'bb sm') : `<span class="small muted">${esc(chk.why)}</span>`}</td></tr>`);
+        const w = GR.watch ? GR.watch.upcoming(s).find((x) => x.id === id) : null;
+        rows.push(`<tr class="${seat.holder === 'me' ? 'me' : ''}"><td><b>${esc(GR.OFFICES[off].name)}</b><br><span class="small">${esc(W().seatTitle(s, seat))}</span></td><td>${inc ? (inc.isPlayer ? '<b>You</b>' : ui.plink(s, inc.id)) : '<span class="muted">Vacant</span>'}${w ? `<br>${tagHtml(w.tags.filter((t) => !/^Leans|^Even/.test(t[0])))}` : ''}</td><td class="small">${pr ? leanLabel(pr.lean) + '<br>' + U.num(pr.pop) + ' people' : 'Nation'}</td><td>${y}<br><span class="small muted">file by ${U.fmtDate(E().filingWeek(y, off))}</span></td><td>${chk.ok ? ui.btn(chk.re ? 'Run for re-election' : `Declare (${U.money(fee)})`, 'declare', id, 'bb sm') : `<span class="small muted">${esc(chk.why)}</span>`}</td></tr>`);
       });
     });
     return `${ui.tabs('campaign', [['run', 'Run for Office']])}<div class="sheet stack">
       <p>You can run for any office that covers your home (${esc(s.home.cityName)}, ZIP ${s.home.zip}). Declare before the filing deadline, win your party's primary in June, then the general election in November. Your war chest (${U.money(me.warChest)}) becomes campaign money when you declare.</p>
+      <div class="band">Races to watch</div>
+      <p class="small muted">Open seats (term-limited or retiring incumbents) and vulnerable incumbents are the best openings. Incumbents announce their plans up to a year ahead; term limits are known as soon as the final term begins.</p>
+      <div>${watchList(s, 5)}</div>
+      <div class="band">Every office that covers your home</div>
       ${ui.table(['Office', 'Incumbent', 'District', 'Election', ''], rows)}
+      <p class="small muted">Term limits here: state legislature ${esc(GR.watch ? GR.watch.limitText(s, 'statehouse').toLowerCase() : '')}; governor ${esc(GR.watch ? GR.watch.limitText(s, 'governor').toLowerCase() : '')}; mayor ${esc(GR.watch ? GR.watch.limitText(s, 'mayor').toLowerCase() : '')}; city council ${esc(GR.watch ? GR.watch.limitText(s, 'council').toLowerCase() : '')}.</p>
       <p class="small muted">School board and city council elections are in odd years; state legislature, Congress and most governors in even years. Starting small builds the name recognition and donor network that bigger races need.</p>
     </div>`;
   }
@@ -327,5 +346,5 @@ GR.uiCampaign = (function () {
   A('mstate', (el, a) => { ui.sel.mstate = a; });
   A('campstate', (el, a) => { ui.sel.area = a; ui.sub.campaign = 'events'; });
 
-  return { render };
+  return { render, watchList };
 })();

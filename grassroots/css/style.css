@@ -391,3 +391,7 @@ label.f > span { font-weight: 600; }
 .billtext .bt-p { text-align: center; }
 .card.urgent { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset, var(--shadow); }
 .areagrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: 0 6px; }
+.chip.tgood { background: rgba(76, 194, 122, .16); border-color: rgba(76, 194, 122, .55); color: var(--good); }
+.chip.tbad { background: rgba(255, 107, 97, .12); border-color: rgba(255, 107, 97, .5); color: var(--bad); }
+.chip.twarn { background: rgba(227, 179, 65, .14); border-color: rgba(227, 179, 65, .5); color: var(--warn); }
+.opp.openseat { border-left: 3px solid var(--good); }
