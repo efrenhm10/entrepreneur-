@@ -63,7 +63,7 @@ GR.develop = (function () {
     if (temp) d.temp += thousands; else d.jobs += thousands;
   }
   // Jobs as a share of the labor force (percentage points), used by the economy.
-  function jobsPct(J) { const d = J.dev; return d ? (d.jobs + d.temp * 0.6) / laborK(J) * 100 : 0; }
+  function jobsPct(J) { const d = J.dev; return ((d ? d.jobs + d.temp * 0.6 : 0) + (GR.prog ? GR.prog.jobsK(J.F) : 0)) / laborK(J) * 100; }
 
   function playerJ(s) { const me = s.pols.me; if (!me.seat) return null; const o = GR.OFFICES[s.seats[me.seat].off]; return o.exec && ['city', 'state', 'nation'].includes(o.jur) ? s.jur[o.jur] : null; }
 

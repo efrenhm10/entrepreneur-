@@ -10,12 +10,12 @@ GR.billgen = (function () {
   const FX = () => GR.fisc;
 
   const FACTIONS = {
-    progressive: { name: 'Progressive', party: 'D', tools: { invest: 3, staff: 2, taxrich: 3, regulate: 2, carbon: 2, expand: 3, pricecap: 2, prevwage: 2 } },
-    liberal: { name: 'Liberal', party: 'D', tools: { invest: 3, staff: 2, credits: 3, regulate: 1, carbon: 1, expand: 2, taxrich: 1, earmarks: 1 } },
-    centrist: { name: 'Centrist', party: null, tools: { p3: 3, reform: 3, credits: 2, invest: 2, pension: 2, earmarks: 2, taxcut: 1 } },
-    conservative: { name: 'Conservative', party: 'R', tools: { taxcut: 3, cut: 3, restrict: 3, reform: 2, safety: 3, deregulate: 2, blockgrant: 1, earmarks: 1 } },
-    libertarian: { name: 'Libertarian', party: 'R', tools: { privatize: 3, deregulate: 3, taxcut: 3, sunset: 2, cut: 2, restrict: 1, blockgrant: 2 } },
-    populist: { name: 'Populist', party: null, tools: { buydomestic: 3, invest: 2, pricecap: 2, corptax: 2, protect: 3, safety: 1, earmarks: 2 } },
+    progressive: { name: 'Progressive', party: 'D', tools: { invest: 3, staff: 2, taxrich: 3, regulate: 2, carbon: 2, expand: 3, pricecap: 2, prevwage: 2, program: 2 } },
+    liberal: { name: 'Liberal', party: 'D', tools: { invest: 3, staff: 2, credits: 3, regulate: 1, carbon: 1, expand: 2, taxrich: 1, earmarks: 1, program: 2 } },
+    centrist: { name: 'Centrist', party: null, tools: { p3: 3, reform: 3, credits: 2, invest: 2, pension: 2, earmarks: 2, taxcut: 1, program: 1.5 } },
+    conservative: { name: 'Conservative', party: 'R', tools: { taxcut: 3, cut: 3, restrict: 3, reform: 2, safety: 3, deregulate: 2, blockgrant: 1, earmarks: 1, program: 0.8 } },
+    libertarian: { name: 'Libertarian', party: 'R', tools: { privatize: 3, deregulate: 3, taxcut: 3, sunset: 2, cut: 2, restrict: 1, blockgrant: 2, program: 0.3 } },
+    populist: { name: 'Populist', party: null, tools: { buydomestic: 3, invest: 2, pricecap: 2, corptax: 2, protect: 3, safety: 1, earmarks: 2, program: 1.5 } },
   };
 
   // Which faction a politician belongs to.
@@ -42,7 +42,24 @@ GR.billgen = (function () {
 
   // ---------- Tools ----------
   // Each returns { prov, title, blurb } or null. ctx: { s, J, F, fac, spon, crisis, ag, size }
+  // A new program from the library, chosen to fit the sponsor's politics and the problem.
+  const LEANS = { progressive: [0, 1], liberal: [-0.1, 1], centrist: [-0.4, 0.4], conservative: [-1, 0.15], libertarian: [-1, -0.05], populist: [-0.5, 0.6] };
+  function programTool(c) {
+    if (!GR.prog) return null;
+    const [lo, hi] = LEANS[c.fac] || [-1, 1];
+    // No duplicates of programs already on the books or pending.
+    const taken = new Set((c.F.programs || []).map((p) => p.k).concat((c.J.bills || []).flatMap((b) => (b.prov.prog || []).map((p) => p.k))));
+    const pool = GR.prog.forLevel(c.J.k).map((p) => { const M = GR.prog.MECH[p.mech]; const lean = p.lean != null ? p.lean : M.lean; const w = (GR.prog.AREAS[p.area].tgt[c.crisis] || 0) + ((p.tgt || {})[c.crisis] || 0); return { p, lean, w }; }).filter((x) => x.lean >= lo && x.lean <= hi && !taken.has(x.p.k));
+    if (!pool.length) return null;
+    const x = U.weighted(pool, (y) => 0.15 + y.w * 3);
+    const ds = GR.prog.design(c.s, c.J, { k: x.p.k, scale: U.pick(['pilot', 'standard', 'standard', 'major']) });
+    const prov = GR.prog.provFor(c.J, ds, GR.legis.emptyProv());
+    if (MECHPAY[x.p.mech]) payFor(c, prov, ds.amt);
+    return { prov, title: `${stShort(c.s, c.J) === 'American' ? '' : stShort(c.s, c.J) + ' '}${ds.name} Act` };
+  }
+  const MECHPAY = { services: 1, payments: 1, grants: 1 };
   const TOOLS = {
+    program: { name: 'New program', make: programTool },
     invest: { name: 'Capital investment', make(c) {
       const a = c.ag; if (!a || !a.capex) return null;
       const f = pct(0.08, c.fac === 'progressive' ? 0.3 : 0.2);

@@ -16,7 +16,7 @@ GR.legis = (function () {
   const WEIGHTS = { it: 0.3, di: 0.3, ae: 0.2, pc: 0.2 };
 
   // ---------- Bill basics ----------
-  function emptyProv() { return { tax: {}, reg: {}, ap: {}, ent: {}, ear: [], emerg: {}, policy: [], eff: {}, prem: {}, sale: {}, fee: {} }; }
+  function emptyProv() { return { tax: {}, reg: {}, ap: {}, ent: {}, ear: [], emerg: {}, policy: [], eff: {}, prem: {}, sale: {}, fee: {}, prog: [] }; }
   const provCount = (p) => ['tax', 'reg', 'ap', 'ent', 'emerg', 'eff', 'prem', 'sale', 'fee'].reduce((n, k) => n + Object.keys(p[k] || {}).length, 0) + (p.ear || []).length + (p.policy || []).length;
   const allBills = (s) => ['school', 'city', 'state', 'nation'].flatMap((j) => s.jur[j].bills || []);
   const findBill = (s, id) => allBills(s).find((b) => b.id === id) || null;
@@ -81,6 +81,7 @@ GR.legis = (function () {
         if (pd && v !== cur) out.push(`${def.name} — ${pd[1]}: ${fmtParam(pd, cur)} → ${fmtParam(pd, v)}`);
       });
     });
+    (p.prog || []).forEach((x) => out.push(`New program: ${x.name} (${U.money(x.amt)} a year, run by the ${x.office})`));
     (p.ear || []).forEach((e) => { const who = s.pols[e.who]; out.push(`Earmark: ${e.proj} (${U.money(e.amt)})${who ? ' for ' + W().fullName(who) : ''}`); });
     Object.entries(p.emerg || {}).forEach(([k, v]) => { const a = F.ag.find((x) => x.k === k); if (a) out.push(`Emergency funds to ${a.abbr}: ${U.money(v)}`); });
     (p.policy || []).forEach((x) => { const pol = GR.POLICY[x.k]; const o = GR.policyOpts(pol, GR.lvlOf(b.jur)); out.push(`${pol.name}: ${o[J.law[x.k]]} → ${o[x.to]}`); });
@@ -115,6 +116,7 @@ GR.legis = (function () {
     Object.values(p.sale || {}).forEach((v) => { L -= 0.35 + v / size * 4; });
     Object.values(p.fee || {}).forEach((v) => { L -= v / size * 6; });
     Object.entries(p.prem || {}).forEach(() => { L += 0.12; });
+    (p.prog || []).forEach((x) => { L += x.lean * x.amt / size * 12; });
     (p.policy || []).forEach((x) => {
       const pol = GR.POLICY[x.k];
       const lvl = GR.lvlOf(b.jur);
@@ -217,6 +219,7 @@ GR.legis = (function () {
       Object.entries(C.ind || {}).forEach(([ik, w]) => { indImpact[ik] += amt * w; });
     });
     Object.entries(prov.prem || {}).forEach(([k, v]) => { const a = F.ag.find((x) => x.k === k); if (a) { const amt = a.capex * v / 100 / size * 15; indImpact.manufacturing += amt * 1.5; indImpact.construction += amt; } });
+    (prov.prog || []).forEach((x) => { const amt = x.amt / size * 15; Object.entries(x.ind || {}).forEach(([ik, w]) => { if (indImpact[ik] != null) indImpact[ik] += amt * w; }); });
     Object.values(prov.sale || {}).forEach(() => { indImpact.finance += 0.05; });
     GR.INDUSTRIES.forEach((x) => { di += (cx.ind[x.k] || 0) * indImpact[x.k] * 4; });
     if (Object.keys(prov.sale || {}).length) di -= pr.union / 40;
@@ -229,6 +232,11 @@ GR.legis = (function () {
       const rel = d / size * 20;
       const tilt = ['ss', 'medicare'].includes(k) ? pr.age / 40 : ['medicaid', 'snap', 'tanf', 'eitc', 'ctc', 'aca', 'meals', 'vouchers', 'childcare'].includes(k) ? pr.poverty / 12 : 1;
       di += rel * tilt * 0.8 * (p.party === 'R' ? 0.5 : 1);
+    });
+    // New programs: who they reach.
+    (prov.prog || []).forEach((x) => {
+      const tilt = { poverty: pr.poverty / 12, urban: 0.4 + pr.urban / 80, rural: 0.4 + (100 - pr.urban) / 80, age: pr.age / 40, young: 1.4 - pr.age / 80, vets: pr.veterans / 7 }[x.tilt] || 1;
+      di += x.amt / size * 18 * U.clamp(tilt, 0.3, 2) * (p.party === 'R' ? 0.6 : 1);
     });
     // Crises: districts reward bills that ease the crises they live with.
     if (an && an.crises) Object.entries(an.crises).forEach(([k, d]) => { di += Math.tanh(-d / 25) * (exposure(s, p, J, k, cx) / 100) * GR.CRISIS_TYPES[k].sal * 0.5; });
@@ -407,7 +415,12 @@ GR.legis = (function () {
         b.agreed[chair.id] = true;
       } else if (chair && !b.agreed[chair.id]) {
         const c = components(s, chair, b);
-        if (c.score < (b.spon === 'me' ? 0.02 : -0.02) && !must) {
+        // Chairs usually hear their own caucus's bills; the other side's need real support.
+        const sp = s.pols[b.spon];
+        let bar = b.spon === 'me' ? 0.02 : sp && sp.party === chair.party ? -0.09 : -0.02;
+        // A vice chair in your corner (or holding the post yourself) softens the chair.
+        if (cm.vice && (cm.vice === 'me' ? b.spon === 'me' : b.agreed[cm.vice])) bar -= 0.03;
+        if (c.score < bar && !must) {
           b.blockedBy = chair.id;
           if (b.spon === 'me' && !b.warnedChair) { b.warnedChair = true; GR.sim.msgInbox(s, 'Committee chair is blocking your bill', `${W().fullName(chair)} (${chair.party}), chair of ${committeeName(s, b)}, will not schedule a hearing on your ${b.title} (score ${c.score.toFixed(2)}).${GR.comm.isMember(s, b.body, b.comm, 'me') ? '' : ' You do not sit on that committee, so you are at the chair\'s mercy.'} Lobby the chair for a hearing, cut a deal in Negotiations, or file a discharge petition.`); }
           if (s.week - b.w > 10) kill(s, b, `died in ${committeeName(s, b)} when chair ${W().fullName(chair)} refused to schedule it`);
@@ -525,12 +538,14 @@ GR.legis = (function () {
     if (b.dev && GR.develop) GR.develop.onEnact(s, b);
     b.stage = 'law'; b.done = s.week;
     FX().apply(J, b);
+    (b.prov.prog || []).forEach((x) => { const p = (J.F.programs || []).slice().reverse().find((q) => q.name === x.name && !q.since); if (p) { p.since = s.week; p.spon = b.spon; p.law = b.title; } });
     (b.prov.policy || []).forEach((x) => { J.law[x.k] = x.to; });
     J.laws.unshift({ w: s.week, t: `${b.title}${b.sum ? ': ' + b.sum : ''}`, spon: b.spon });
     if (J.laws.length > 80) J.laws.pop();
     GR.sim.news(s, `${J.name}: the ${b.title} is now law.`, 'gov');
     if (b.kind === 'budget' || b.kind === 'cr') { J.fy = J.fy || {}; J.fy.passed = fiscalYear(s, J.k); J.F.shutdown = 0; if (J.fy.shutdownSince) { GR.sim.news(s, `The ${J.name} government shutdown is over after ${s.week - J.fy.shutdownSince} weeks.`, 'gov'); J.fy.shutdownSince = null; } }
     if (b.kind === 'reconciliation') { s.recon = s.recon || {}; s.recon[fiscalYear(s, 'nation')] = true; }
+    if (b.spon === 'me' && GR.power) (b.prov.prog || []).forEach((x) => Object.entries(x.bases || {}).forEach(([k, v]) => GR.power.shift(s, k, v)));
     if (b.spon === 'me') {
       s.stats.billsPassed++;
       G().addRespect(s, 3);
@@ -678,6 +693,7 @@ GR.legis = (function () {
     const cm = Bd.comm[b.comm];
     const add = (id, role) => { const p = s.pols[id]; if (p && !p.isPlayer && !out.some((x) => x.id === id)) out.push({ id, role, c: components(s, p, b) }); };
     if (cm && cm.chair) add(cm.chair, 'Committee chair');
+    if (cm && cm.vice) add(cm.vice, 'Vice chair');
     if (cm && cm.rank) add(cm.rank, 'Ranking member');
     ['speaker', 'majleader', 'minleader', 'president'].forEach((k) => { if (Bd.lead[k]) add(Bd.lead[k], GR.LEADERSHIP[b.body].find((x) => x.k === k).name); });
     // Swing votes: the members closest to flipping.
@@ -737,6 +753,8 @@ GR.legis = (function () {
     const Bd = s.bodies[b.body];
     const chairId = Bd && Bd.comm[b.comm] && Bd.comm[b.comm].chair;
     if (pid === chairId && after > 0.02) { b.agreed[pid] = true; msg += ` ${W().fullName(p)} agrees to move the bill out of committee.`; }
+    const viceId = Bd && Bd.comm[b.comm] && Bd.comm[b.comm].vice;
+    if (pid === viceId && after > 0.02 && !b.agreed[pid] && ['committee', 'markup'].includes(b.stage)) { b.agreed[pid] = true; msg += ` ${W().fullName(p)}, the vice chair, will press the chair to hear it.`; }
     return { ok: true, msg: `${msg} Their score: ${before.toFixed(2)} → ${after.toFixed(2)}.` };
   }
 
@@ -877,9 +895,10 @@ GR.legis = (function () {
       const J = s.jur[jur];
       J.bills = J.bills || [];
       const pending = J.bills.filter(OPEN).length;
-      const rate = jur === 'nation' ? 0.9 : jur === 'state' ? 0.75 : 0.35;
-      let n = U.chance(rate) ? (jur === 'nation' || jur === 'state' ? U.randInt(1, 2) : 1) : 0;
-      if (pending > 14) n = 0;
+      // Legislatures in session move a steady stream of bills; councils and boards fewer.
+      const rate = jur === 'nation' ? 0.95 : jur === 'state' ? 0.95 : jur === 'city' ? 0.7 : 0.3;
+      let n = U.chance(rate) ? (jur === 'nation' ? U.randInt(2, 3) : jur === 'state' ? U.randInt(2, 3) : 1) : 0;
+      if (pending > ({ nation: 32, state: 28, city: 14, school: 8 }[jur] || 14)) n = 0;
       for (let i = 0; i < n; i++) {
         const b = npcBill(s, jur);
         if (b) J.bills.push(b);
@@ -889,7 +908,9 @@ GR.legis = (function () {
 
   // AI legislation is dealt from the policy deck (see billgen.js).
   function npcBill(s, jur) {
-    const d = GR.billgen.deal(s, jur);
+    // Bills start in either chamber; tilt toward yours so you see them while they are live.
+    const mine = G().myBody(s);
+    const d = GR.billgen.deal(s, jur, mine && G().bodiesOf(s, jur).includes(mine) && U.chance(0.6) ? { body: mine } : {});
     if (!d) return null;
     const recon = jur === 'nation' && U.chance(0.12) && !d.prov.policy.length && !Object.keys(d.prov.reg).length && !Object.keys(d.prov.prem).length && !(s.recon || {})[fiscalYear(s, 'nation')];
     const b = newBill(s, jur, { title: d.title, prov: d.prov, spon: d.spon.id, kind: recon ? 'reconciliation' : 'regular', body: d.body, due: s.week + U.randInt(1, 3), fac: d.fac, tool: d.tool, crisis: d.crisis });

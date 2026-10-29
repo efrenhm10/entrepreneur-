@@ -78,6 +78,7 @@ GR.comm = (function () {
     delete c.sen[id];
     if (c.chair === id) c.chair = null;
     if (c.rank === id) c.rank = null;
+    if (c.vice === id) c.vice = null;
     syncPrimary(s, bodyKey, s.pols[id]);
   }
 
@@ -119,16 +120,20 @@ GR.comm = (function () {
     const maj = W().majority(s, bodyKey);
     Object.keys(B.comm).forEach((k) => {
       const c = B.comm[k];
-      const prevChair = c.chair, prevRank = c.rank;
-      const best = (party, keep) => {
+      const prevChair = c.chair, prevRank = c.rank, prevVice = c.vice;
+      const best = (party, keep, not) => {
         if (keep && s.pols[keep] && s.pols[keep].party === party && c.members.includes(keep)) return keep;
-        const pool = c.members.map((id) => s.pols[id]).filter((m) => m && m.party === party && !(m.isPlayer && s.steerNoGavel));
-        pool.sort((a, b) => senScore(s, bodyKey, k, b) - senScore(s, bodyKey, k, a));
+        const pool = c.members.map((id) => s.pols[id]).filter((m) => m && m.party === party && m.id !== not && !(m.isPlayer && s.steerNoGavel && !not));
+        // The sitting vice chair is first in line for the gavel.
+        pool.sort((a, b) => senScore(s, bodyKey, k, b) + (!not && b.id === prevVice ? 1.5 : 0) - senScore(s, bodyKey, k, a) - (!not && a.id === prevVice ? 1.5 : 0));
         return pool[0] ? pool[0].id : null;
       };
       // Gavels won in steering are kept for the session; otherwise seniority rules.
       c.chair = best(maj, c.chairWon ? c.chair : null);
       c.rank = best(GR.other(maj), c.rankWon ? c.rank : null);
+      // The vice chair: the majority's next most senior member.
+      c.vice = best(maj, prevVice && prevVice !== c.chair ? prevVice : null, c.chair);
+      if (!quiet && c.vice === 'me' && prevVice !== 'me' && c.chair !== 'me') GR.sim.msgInbox(s, `Vice chair of ${nameOf(bodyKey, k)}`, `You are now vice chair of the ${GR.BODIES[bodyKey].name} ${nameOf(bodyKey, k)} Committee. You preside when the chair is away, the chair leans on you to manage the markup, and you are first in line for the gavel.`);
       if (!quiet && c.chair === 'me' && prevChair !== 'me') GR.sim.msgInbox(s, `Chair of ${nameOf(bodyKey, k)}`, `Seniority has made you chair of the ${GR.BODIES[bodyKey].name} ${nameOf(bodyKey, k)} Committee. Every bill referred to it moves only if you schedule it, and you control the markup.`);
       if (!quiet && c.rank === 'me' && prevRank !== 'me') GR.sim.msgInbox(s, `Ranking member of ${nameOf(bodyKey, k)}`, `You are now the ranking minority member on ${nameOf(bodyKey, k)}. You lead your party's side in markup.`);
     });
@@ -152,7 +157,12 @@ GR.comm = (function () {
     const B = s.bodies[bodyKey];
     if (!B || !B.comm) return;
     const ms = W().members(s, bodyKey);
-    Object.keys(B.comm).forEach((k) => { const c = B.comm[k]; c.sen = c.sen || {}; c.sz = c.sz || sizeOf(bodyKey, k, ms.length); if (c.rank === undefined) c.rank = null; });
+    const maj = W().majority(s, bodyKey);
+    Object.keys(B.comm).forEach((k) => {
+      const c = B.comm[k]; c.sen = c.sen || {}; c.sz = c.sz || sizeOf(bodyKey, k, ms.length); if (c.rank === undefined) c.rank = null;
+      // Older saves predate vice chairs.
+      if (c.vice === undefined) { const pool = c.members.map((id) => s.pols[id]).filter((m) => m && m.party === maj && m.id !== c.chair).sort((x, y) => senScore(s, bodyKey, k, y) - senScore(s, bodyKey, k, x)); c.vice = pool[0] ? pool[0].id : null; }
+    });
   }
 
   // Start of a session: seniority accrues, ratios rebalance, newcomers are placed, chairs set.
@@ -201,7 +211,7 @@ GR.comm = (function () {
       if (i < 0) return;
       c.members[i] = newId;
       if (c.sen) { delete c.sen[oldId]; c.sen[newId] = 0; }
-      if (c.chair === oldId || c.rank === oldId) { if (c.chair === oldId) c.chair = null; if (c.rank === oldId) c.rank = null; lostGavel = true; }
+      if (c.chair === oldId || c.rank === oldId || c.vice === oldId) { if (c.chair === oldId) c.chair = null; if (c.rank === oldId) c.rank = null; if (c.vice === oldId) c.vice = null; lostGavel = true; }
     });
     syncPrimary(s, bodyKey, s.pols[newId]);
     if (lostGavel) pickChairs(s, bodyKey, false);
@@ -482,6 +492,9 @@ GR.comm = (function () {
       const adm = J.F.ag.slice().sort((a, x) => a.eff - x.eff)[0];
       if (adm) out.push({ k: `offset:cut:${adm.k}`, group: 'Pay-for', label: `Pay for it: 3% across-the-board cut to ${adm.abbr} operations (audit rating ${Math.round(adm.eff)})`, cost: 4 });
     }
+    // The vice chair manages the markup for the chair: amendments cost less.
+    const cm = s.bodies[b.body].comm[b.comm];
+    if (cm && cm.vice === 'me') out.forEach((o) => { o.cost = Math.max(1, o.cost - 1); });
     return out;
   }
   // Sized to the agency, capped at a slice of the whole budget (0.15% federal, 0.6% state/local).
@@ -632,7 +645,8 @@ GR.comm = (function () {
     me.pp -= cost;
     const sc = L().components(s, chair, b).score;
     const member = isMember(s, b.body, b.comm, 'me');
-    const x = sc * 9 + G().rel(s, chair.id) / 28 + ((me.respect || 20) - 35) / 30 + (chair.party === me.party ? 0.5 : -0.6) + (member ? 0.6 : 0) - 0.4;
+    const vice = s.pols[c.vice];
+    const x = sc * 9 + G().rel(s, chair.id) / 28 + ((me.respect || 20) - 35) / 30 + (chair.party === me.party ? 0.5 : -0.6) + (member ? 0.6 : 0) - 0.4 + (c.vice === 'me' ? 0.9 : vice && b.agreed[vice.id] ? 0.6 : 0);
     const p = U.clamp(sig(x), 0.03, 0.95);
     if (U.chance(p)) { b.agreed[chair.id] = true; G().addRel(s, chair.id, 2); return { ok: true, msg: `${W().fullName(chair)} agreed to schedule a hearing and markup on your ${b.title} (${Math.round(p * 100)}% odds).` }; }
     G().addRel(s, chair.id, -2);
@@ -648,6 +662,8 @@ GR.comm = (function () {
 
   // ---------- Weekly ----------
   function week(s) {
+    const mb = G().myBody(s);
+    if (mb) migrate(s, mb);
     if (s.steer && !s.steer.done && s.week >= s.steer.due) {
       const r = resolveSteering(s);
       if (!r.ok && s.steer) { s.steer.pp = 0; s.steer.gavelPP = 0; s.steer.favors.dues = false; resolveSteering(s); }
@@ -662,7 +678,7 @@ GR.comm = (function () {
     if (!bodyKey || !s.bodies[bodyKey]) return [];
     return commsOf(s, bodyKey, 'me').map((k) => {
       const c = s.bodies[bodyKey].comm[k];
-      return { k, name: nameOf(bodyKey, k), tier: tierOf(bodyKey, k), role: c.chair === 'me' ? 'Chair' : c.rank === 'me' ? 'Ranking Member' : 'Member', sen: c.sen.me || 0, rank: seniorityRank(s, bodyKey, k, 'me') };
+      return { k, name: nameOf(bodyKey, k), tier: tierOf(bodyKey, k), role: c.chair === 'me' ? 'Chair' : c.vice === 'me' ? 'Vice Chair' : c.rank === 'me' ? 'Ranking Member' : 'Member', sen: c.sen.me || 0, rank: seniorityRank(s, bodyKey, k, 'me') };
     });
   }
   const isChair = (s, bodyKey, k) => !!(s.bodies[bodyKey] && s.bodies[bodyKey].comm[k] && s.bodies[bodyKey].comm[k].chair === 'me');

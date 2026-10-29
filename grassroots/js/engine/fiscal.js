@@ -291,6 +291,8 @@ GR.fisc = (function () {
     });
     // Earmarked capital projects help infrastructure-type crises.
     if (k === 'infra' || k === 'water' || k === 'disaster') m += U.sum(F.ear, (e) => e.amt) / Math.max(1, totalsCache(J).spend) * 6;
+    // Programs aimed at this problem.
+    if (GR.prog) m += GR.prog.mitigation(F, k);
     // Diminishing returns: money alone cannot erase a structural crisis overnight.
     return Math.tanh(m * 1.2) / 1.2;
   }
@@ -528,7 +530,7 @@ GR.fisc = (function () {
     const basePot = F.lvl === 'nation' ? 1.9 : (nat ? nat.mac.pot : 1.9);
     // Diminishing returns: each doubling of a stock adds a fixed amount to potential growth.
     const kr = (k) => Math.log(m.K[k] / 100);
-    m.pot = basePot + 0.5 * kr('infra') + 0.8 * kr('rd') + 0.7 * kr('hum') + privEff - regDrag - crisisDrag;
+    m.pot = basePot + 0.5 * kr('infra') + 0.8 * kr('rd') + 0.7 * kr('hum') + privEff - regDrag - crisisDrag + (GR.prog ? GR.prog.potBoost(F) : 0);
     // Output gap.
     m.gapPrev = m.gap;
     const crowd = F.lvl === 'nation' ? 0.25 * (m.y10 - F.y10_0) : 0;
@@ -632,6 +634,8 @@ GR.fisc = (function () {
     });
     // New user fees, tolls and charges.
     Object.entries(p.fee || {}).forEach(([name, amt]) => { F.fees = F.fees || {}; F.fees[name] = (F.fees[name] || 0) + amt / (F.mac.gdp / F.mac.gdp0); });
+    // New programs go on the books.
+    if (GR.prog) GR.prog.onApply(J, p);
   }
 
   function cloneJ(J) {

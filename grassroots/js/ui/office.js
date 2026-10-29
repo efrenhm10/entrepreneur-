@@ -31,6 +31,7 @@ GR.uiOffice = (function () {
       + ui.panel('Power bases', bases(s));
     const col2 = ui.panel(`Key indicators · ${esc(J.name)}`, indicators(s, J))
       + ui.panel('Crises & needs', crises(s, J) + `<div class="row" style="margin-top:6px">${ui.btn('Full briefing', 'gotab', 'economy|brief', 'bgr sm')}${ui.btn('Write a bill', 'tab', 'builder', 'bb sm')}</div>`)
+      + programsPanel(s, J)
       + ui.panel('Trends', trends(s, J));
     const col3 = ui.panel('On your desk', desk(s))
       + ui.panel('Advisers say', advisories(s).map(([txt, lbl, act, arg, urgent]) => `<div class="advice ${urgent ? 'urgent' : ''}"><span>${esc(txt)}</span>${lbl ? ui.btn(lbl, act, arg || '', 'bgr sm') : ''}</div>`).join('') || '<p class="muted small">All quiet.</p>')
@@ -85,6 +86,14 @@ GR.uiOffice = (function () {
   function crises(s, J) {
     const rows = Object.entries(J.F.crises).sort((a, b) => b[1].s - a[1].s).slice(0, 6);
     return rows.map(([k, c]) => { const d4 = c.hist.length >= 4 ? c.s - c.hist[c.hist.length - 4] : 0; return ui.meter(`${esc(GR.CRISIS_TYPES[k].name)}${Math.abs(d4) >= 0.5 ? ` <span class="tiny ${d4 > 0 ? 'bad' : 'good'}">${d4 > 0 ? '▲' : '▼'}${Math.abs(d4).toFixed(1)}</span>` : ''}`, c.s / 100, false, Math.round(c.s)); }).join('') || '<p class="muted small">No pressing crises.</p>';
+  }
+
+  // Programs on the books, yours first, with what they delivered this year.
+  function programsPanel(s, J) {
+    if (!GR.prog) return '';
+    const rows = GR.prog.report(J).sort((a, b) => (b.p.spon === 'me') - (a.p.spon === 'me') || b.p.amt - a.p.amt).slice(0, 6);
+    if (!rows.length) return '';
+    return ui.panel('Programs on the books', rows.map(({ p, served }) => `<div class="opp"><span class="t"><b class="small">${esc(p.name)}</b>${p.spon === 'me' ? ' <span class="chip">yours</span>' : ''}<br><span class="tiny muted">${U.money(p.amt)} a year · ${U.num(served)} ${esc(p.unit)} · ${esc(p.office)}</span></span></div>`).join(''));
   }
 
   function trends(s, J) {
