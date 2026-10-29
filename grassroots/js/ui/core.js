@@ -20,6 +20,20 @@ GR.ui = (function () {
   ui.kv = (rows, cls = 'kv') => `<table class="tbl ${cls}"><tbody>${rows.filter(Boolean).map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</tbody></table>`;
   ui.table = (head, rows, opts = {}) => `<div class="scroll-x"><table class="tbl ${opts.cls || ''}">${opts.caption ? `<caption>${opts.caption}</caption>` : ''}<thead><tr>${head.map((h) => `<th class="${h.c || ''}">${h.t != null ? h.t : h}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.join('') : `<tr><td colspan="${head.length}" class="c muted">${opts.empty || 'Nothing here yet.'}</td></tr>`}</tbody></table></div>`;
   ui.money = (n) => U.money(n);
+  // Situation-room components.
+  ui.panel = (title, body, cls = '') => `<section class="card ${cls}">${title ? `<h3>${title}</h3>` : ''}${body}</section>`;
+  // Red → amber → green by how good a 0-1 value is.
+  ui.hue = (g) => `hsl(${Math.round(U.clamp(g, 0, 1) * 125)}, 62%, 48%)`;
+  ui.meter = (label, norm, good, disp, title = '') => { const n = U.clamp(norm, 0, 1); return `<div class="meter"${title ? ` title="${esc(title)}"` : ''}><div class="meter-top"><span>${label}</span><b>${disp}</b></div><div class="meter-bar"><i style="width:${Math.max(3, n * 100)}%;background:${ui.hue(good ? n : 1 - n)}"></i></div></div>`; };
+  ui.spark = (vals, color = 'var(--blue)') => {
+    const v = vals.filter((x) => x != null && isFinite(x));
+    if (v.length < 2) return '<svg viewBox="0 0 100 26"></svg>';
+    let mn = Math.min(...v), mx = Math.max(...v);
+    if (mx - mn < 1e-9) { mx += 1; mn -= 1; }
+    const pts = v.map((x, i) => `${(i / (v.length - 1) * 98 + 1).toFixed(1)},${(24 - (x - mn) / (mx - mn) * 22).toFixed(1)}`).join(' ');
+    return `<svg viewBox="0 0 100 26" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.8" vector-effect="non-scaling-stroke"/></svg>`;
+  };
+  ui.stat = (label, v, cls = '') => `<div class="${cls}"><small>${label}</small><b>${v}</b></div>`;
   ui.pname = (s, id) => { const p = s.pols[id]; return p ? `${esc(GR.world.fullName(p))}` : 'Vacant'; };
   ui.plink = (s, id) => { const p = s.pols[id]; if (!p) return '<span class="muted">Vacant</span>'; return `<a href="#" data-act="viewpol" data-a="${p.id}">${esc(GR.world.fullName(p))}</a> ${ui.chip(p.party)}`; };
 
@@ -137,16 +151,18 @@ GR.ui = (function () {
   };
 
   // ---------- Toasts & modal ----------
-  ui.toast = function (msg) {
+  ui.toast = function (msg, chips) {
     if (!msg || typeof document === 'undefined') return;
     let box = document.querySelector('.toasts');
     if (!box) { box = document.createElement('div'); box.className = 'toasts'; box.setAttribute('role', 'status'); document.body.appendChild(box); }
     const t = document.createElement('div');
     t.className = 'toast';
     t.textContent = msg;
+    if (chips && chips.length) { const c = document.createElement('div'); c.className = 'chips'; c.innerHTML = chips.slice(0, 10).map((x) => `<span class="ichip ${x.good ? 'good' : 'bad'}">${esc(x.t)}</span>`).join(''); t.appendChild(c); }
     box.appendChild(t);
-    while (box.children.length > 3) box.firstChild.remove();
-    setTimeout(() => t.remove(), 4200);
+    while (box.children.length > (window.innerWidth < 700 ? 2 : 3)) box.firstChild.remove();
+    setTimeout(() => t.classList.add('out'), 5200);
+    setTimeout(() => t.remove(), 5700);
   };
   ui.res = (r) => { if (r && r.msg) ui.toast(r.msg); };
 

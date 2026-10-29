@@ -263,7 +263,8 @@ GR.sim = (function () {
     if (U.isYearStart(s.week)) npcYear(s);
     GR.events.week(s);
     GR.develop.week(s);
-    if (U.isMonthStart(s.week) && me.seat) { GR.power.month(s); GR.cabinet.month(s); GR.scenes.month(s); }
+    if (me.seat) GR.xneg.week(s);
+    if (U.isMonthStart(s.week) && me.seat) { GR.power.month(s); GR.cabinet.month(s); GR.scenes.month(s); s.appHist = (s.appHist || []).concat([Math.round(me.app)]).slice(-72); }
     if (U.isYearStart(s.week)) { GR.develop.yearTick(s); if (me.seat) GR.scenes.report(s); }
     GR.scenes.week(s);
     // Recognition fades a little without activity.

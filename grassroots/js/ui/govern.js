@@ -493,5 +493,5 @@ GR.uiGov = (function () {
     ui.toast('Economic calculators updated for the new quarter.');
   });
 
-  return { briefing, constructor, docket, negotiations, rolls, budgetView, economy, billModal, crisisTable, agencyTable, committees };
+  return { briefing, constructor, docket, negotiations, rolls, budgetView, economy, billModal, crisisTable, agencyTable, committees, committeePanel, chairButtons, whipBox, hearingNeeded, analysisPanel };
 })();

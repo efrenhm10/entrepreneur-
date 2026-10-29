@@ -1,4 +1,4 @@
-// Main game screen: status strip, tab bar, Next Turn, overlays, News and Profile tabs.
+// Main game screen: the command HUD, the dock of views, scene cards and overlays, News and Life.
 var GR = globalThis.GR || (globalThis.GR = {});
 
 GR.uiGame = (function () {
@@ -6,59 +6,128 @@ GR.uiGame = (function () {
   const ui = GR.ui;
   const esc = U.esc;
   const W = () => GR.world;
-
-  const ICON = {
-    people: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="7" r="3.6"/><circle cx="16.5" cy="7.5" r="3.2"/><path d="M1.5 21c0-4.4 3-7.6 6.5-7.6s6.5 3.2 6.5 7.6z"/><path d="M13.6 13.8c.9-.5 1.9-.8 2.9-.8 3.3 0 6 2.9 6 7.2h-7.4c0-2.7-.6-4.7-1.5-6.4z"/></svg>',
-    star: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.8l3 7 7.6.6-5.8 5 1.8 7.4L12 17.9 5.4 21.8l1.8-7.4-5.8-5 7.6-.6z"/></svg>',
-    thumb: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 10h4v11H2zM8 21V10l4.6-7.6c1.3-.5 2.6.4 2.4 1.9L14 9h6.2c1.2 0 2.1 1.1 1.8 2.3l-2 8.2c-.3.9-1 1.5-2 1.5z" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>',
-    mail: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M2.5 5.5L12 13l9.5-7.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>',
-    check: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 11.5l4 4L22 3" fill="none" stroke="currentColor" stroke-width="2.6"/></svg>',
-  };
-  const TABS = [['office', 'Office'], ['campaign', 'Campaign'], ['politicians', 'Politicians'], ['elections', 'Elections'], ['metrics', 'Metrics'], ['profile', 'Profile'], ['news', 'News']];
-
-  function constituents(s) {
-    const me = s.pols.me;
-    const seat = me.seat ? s.seats[me.seat] : s.campaign ? s.seats[s.campaign.seat] : null;
-    if (seat) return seat.off === 'president' ? 340e6 : W().seatProfile(s, seat).pop;
-    return s.city.pop;
-  }
+  const G = () => GR.gov;
   const unread = (s) => s.inbox.filter((x) => !x.done).length;
   const weekOfYear = (s) => { const d = U.dateOf(s.week); return Math.floor((d - Date.UTC(d.getUTCFullYear(), 0, 1)) / 6048e5) + 1; };
 
-  function render() {
-    const s = ui.s;
+  // Old Office sub-tab keys still used by buttons around the game, mapped to the new views.
+  const ALIAS = { docket: ['legis'], bills: ['builder'], deals: ['nego', 'members'], rolls: ['nego', 'rolls'], budget: ['budget'], econ: ['economy', 'econ'], brief: ['economy', 'brief'], power: ['power', 'bases'],
+    cabinet: ['cabinet'], develop: ['develop'], committees: ['committees'], leadership: ['power', 'leadership'], colleagues: ['power', 'colleagues'], district: ['economy', 'district'], schedule: ['power', 'schedule'], exec: ['orders'] };
+  function route() {
+    const k = ui.sub.office;
+    if (k && ALIAS[k]) { const [v, sub] = ALIAS[k]; ui.tab = v; if (sub) ui.sub[v] = sub; delete ui.sub.office; }
+  }
+
+  // The dock: every view available to you right now.
+  function views(s) {
     const me = s.pols.me;
-    if (s.over) return overScreen(s);
-    const tasks = GR.gov.tasks(s).length;
+    const seat = me.seat && s.seats[me.seat];
+    const off = seat && GR.OFFICES[seat.off];
+    const bk = G().myBody(s);
+    const tasks = G().tasks(s).length;
+    const n = unread(s);
+    const out = [['office', '🏛️', seat ? 'Situation Room' : 'Home']];
+    if (seat) {
+      const hasLeg = G().bodiesOf(s, off.jur).length;
+      if (hasLeg) out.push(['legis', '📜', 'Legislature', tasks]);
+      if (bk) out.push(['committees', '⚖️', 'Committees', s.steer && !s.steer.done && s.steer.body === bk ? '!' : '']);
+      if (hasLeg) out.push(['nego', '🤝', off.exec ? 'Legislative Affairs' : 'Negotiations', xAlerts(s)]);
+      out.push(['builder', '✍️', 'Bill Builder', s.budgetDue && s.budgetDue[off.jur] && off.exec ? '!' : ''], ['budget', '💰', 'Budget'], ['economy', '📈', 'Economy']);
+      out.push(['power', '🧭', 'Power']);
+      if (seat.off !== 'school') out.push(['cabinet', '👔', off.exec ? 'Cabinet' : 'Staff']);
+      if (off.jur !== 'school') out.push(['develop', '🏗️', 'Development']);
+      if (off.exec) out.push(['orders', '🖋️', 'Executive Orders']);
+      out.push(['sep']);
+    }
+    out.push(['campaign', '🗳️', 'Campaign', s.campaign ? '' : ''], ['politicians', '👥', 'Politicians'], ['elections', '🗺️', 'Elections'], ['metrics', '📊', 'Metrics'], ['profile', '👤', 'Life & Family'], ['news', '📰', 'News', n]);
+    return out;
+  }
+  const xAlerts = (s) => (GR.legis.allBills(s).filter((b) => b.spon === 'me' && b.xcounter && GR.legis.OPEN(b)).length || '');
+
+  function viewBody(s, v) {
+    const V = GR.uiGov, O = GR.uiOffice, X = GR.uiExec, LG = GR.uiLegis;
+    const me = s.pols.me;
+    const seat = me.seat && s.seats[me.seat];
+    const need = (fn) => (seat ? fn() : O.noOffice(s));
+    const bk = G().myBody(s);
+    const sheet = (h) => `<div class="sheet">${h}</div>`;
+    switch (v) {
+      case 'office': return seat ? O.render(s) : O.noOffice(s);
+      case 'legis': return need(() => LG.legislature(s));
+      case 'committees': return need(() => head('Committees', bk ? GR.BODIES[bk].name : '') + sheet(V.committees(s)));
+      case 'nego': return need(() => LG.nego(s));
+      case 'builder': return need(() => GR.uiDraft.render(s));
+      case 'budget': return need(() => head('Budget', s.jur[G().myJur(s)].name) + sheet(V.budgetView(s)));
+      case 'economy': {
+        const tabs = [['brief', 'Four-part briefing'], ['econ', 'Economy'], ['district', 'District dossier']];
+        const cur = ui.cur('economy', tabs);
+        return need(() => head('Economy & Briefing', s.jur[G().myJur(s)].name) + ui.tabs('economy', tabs) + sheet(cur === 'brief' ? V.briefing(s) : cur === 'econ' ? V.economy(s) : X.dossier(s) + O.overview(s, seat)));
+      }
+      case 'power': {
+        const tabs = [['bases', 'Power bases']];
+        if (bk) tabs.push(['leadership', 'Leadership'], ['colleagues', 'Colleagues']);
+        tabs.push(['schedule', 'Schedule']);
+        const cur = ui.cur('power', tabs);
+        return need(() => head('Power', 'Who keeps you in office') + ui.tabs('power', tabs) + sheet(cur === 'bases' ? X.power(s) : cur === 'leadership' ? O.leadership(s, bk) : cur === 'colleagues' ? O.colleagues(s, bk) : O.schedule(s)));
+      }
+      case 'cabinet': return need(() => head(GR.OFFICES[seat.off].exec ? 'Cabinet' : 'Staff', '') + sheet(X.cabinet(s)));
+      case 'develop': return need(() => head('Economic Development', s.jur[G().myJur(s)].name) + sheet(X.develop(s)));
+      case 'orders': return need(() => head('Executive Orders', '') + sheet(O.execOrders(s)));
+      case 'campaign': return head('Campaign', '') + `<div class="panel">${GR.uiCampaign.render(s)}</div>`;
+      case 'politicians': return head('Politicians', '') + `<div class="panel">${GR.uiWorld.politicians(s)}</div>`;
+      case 'elections': return head('Elections', '') + `<div class="panel">${GR.uiWorld.elections(s)}</div>`;
+      case 'metrics': return head('Metrics', '') + `<div class="panel">${GR.uiWorld.metrics(s)}</div>`;
+      case 'profile': return head('Life & Family', '') + profile(s);
+      default: return head('News', '') + news(s);
+    }
+  }
+  const head = (t, sub) => `<div class="vhead"><h2>${esc(t)}</h2>${sub ? `<span class="sub">${esc(sub)}</span>` : ''}</div>`;
+
+  function hud(s) {
+    const me = s.pols.me;
+    const seat = me.seat && s.seats[me.seat];
+    const jur = G().myJur(s) || 'state';
+    const J = s.jur[jur];
+    const m = J.F.mac;
+    const t = GR.fisc.totals(J);
+    const tasks = G().tasks(s).length;
     const n = unread(s);
     const approval = me.seat ? Math.round(me.app) : Math.round(U.clamp(50 + me.fav / 2, 0, 100));
-    let body = '';
-    const t = ui.tab;
-    if (t === 'office') body = GR.uiOffice.render(s);
-    else if (t === 'campaign') body = GR.uiCampaign.render(s);
-    else if (t === 'politicians') body = GR.uiWorld.politicians(s);
-    else if (t === 'elections') body = GR.uiWorld.elections(s);
-    else if (t === 'metrics') body = GR.uiWorld.metrics(s);
-    else if (t === 'profile') body = profile(s);
-    else body = news(s);
-    return `<div class="app">
-      <div class="status">
-        <span class="st" title="Constituents">${ICON.people}<span class="num">${U.num(constituents(s))}</span></span>
-        <span class="st" title="Political points">${ICON.star}<span class="num">${U.num(me.pp)}</span></span>
-        <span class="st" title="${me.seat ? 'Approval rating' : 'Favorability'}">${ICON.thumb}<span class="num">${approval}%</span></span>
-        <button class="st inbox ${n ? '' : 'clear'}" data-act="gotab" data-a="news|inbox" title="Inbox">${ICON.mail}<span class="num">${n}</span></button>
-        <button class="st tasks" data-act="gotab" data-a="office|docket" title="Votes and decisions waiting">${ICON.check}<span class="num">${tasks}</span></button>
-        <span class="st small muted" title="Hours left this week">Hours: <b class="num" style="color:var(--ink)">${s.hoursLeft}</b></span>
+    const lvl = (v, good, bad) => (v >= good ? 'good' : v <= bad ? 'bad' : '');
+    const st = (label, v, cls = '', tip = '', act = '', arg = '') => act ? `<button class="hstat link ${cls}" data-act="${act}" data-a="${esc(arg)}" title="${esc(tip)}"><small>${label}</small><b>${v}</b></button>` : `<div class="hstat ${cls}" title="${esc(tip)}"><small>${label}</small><b>${v}</b></div>`;
+    const bal = t.bal / Math.max(1, t.spend) * 100;
+    return `<header class="hud">
+      <div class="hud-left"><div class="hud-portrait">${ui.facePol(s, me)}</div><div style="min-width:0"><div class="hud-name">${esc(me.fn + ' ' + me.ln)} ${ui.chip(me.party)}</div><div class="hud-title">${seat ? esc(W().seatTitle(s, seat)) : s.campaign ? 'Candidate · ' + esc(W().seatTitle(s, s.seats[s.campaign.seat])) : 'Private citizen · ' + esc(s.home.cityName)}</div></div></div>
+      <div class="hud-stats">
+        ${st('Date', `${U.fmtDate(s.week)}`, '', `Week ${weekOfYear(s)} of ${U.yearOf(s.week)}`)}
+        ${st(me.seat ? 'Approval' : 'Favorable', approval + '%', lvl(approval, 55, 38))}
+        ${st('Capital', U.num(Math.floor(me.pp)), '', 'Political points: spent on bills, deals, steering bids and favors')}
+        ${st('Hours', s.hoursLeft, s.hoursLeft < 4 ? 'bad' : '', 'Hours left this week')}
+        ${st('War chest', U.money(me.warChest), '', 'Saved for your next campaign')}
+        ${st('Growth', m.g.toFixed(1) + '%', lvl(m.g, 2.5, 0.5), `${J.name}: real GDP growth`, 'tab', 'economy')}
+        ${st('Jobless', m.u.toFixed(1) + '%', m.u > 6.5 ? 'bad' : m.u < 4.2 ? 'good' : '', `${J.name}: unemployment`, 'tab', 'economy')}
+        ${st(jur === 'nation' ? 'Deficit' : 'Budget', (bal >= 0 ? '+' : '') + bal.toFixed(0) + '%', bal < -12 ? 'bad' : bal >= 0 ? 'good' : '', `${J.name}: surplus or deficit as a share of spending`, 'tab', 'budget')}
+        ${st('Rating', J.F.ratingLabel, /^A/.test(J.F.ratingLabel) ? 'good' : /^B/.test(J.F.ratingLabel) ? 'bad' : '', 'Credit rating')}
+        ${st('Inbox', n, n ? 'alert' : '', 'Unread messages and decisions', 'gotab', 'news|inbox')}
+        ${me.seat ? st('On desk', tasks, tasks ? 'alert' : '', 'Votes and decisions waiting on you', 'tab', 'legis') : ''}
       </div>
-      <div class="mainbar" role="tablist">
-        ${TABS.map(([k, l]) => `<button class="tab ${t === k ? 'on' : ''}" role="tab" aria-selected="${t === k}" data-act="tab" data-a="${k}">${l}${k === 'news' && n ? `<span class="dot">${n}</span>` : k === 'office' && tasks ? `<span class="dot">${tasks}</span>` : ''}</button>`).join('')}
-        <button class="tab menu" data-act="menu">Menu</button>
-        <span class="when">Week ${weekOfYear(s)}, ${U.yearOf(s.week)}</span>
-        <button class="next" data-act="nextTurn">Next Turn</button>
-        <span class="brk" aria-hidden="true"></span>
+      <div class="hud-right">
+        <button class="hbtn primary" data-act="nextTurn" data-a="1">Next week ▶</button>
+        <button class="hbtn opt" data-act="nextTurn" data-a="4" title="Advance up to 4 weeks (stops for votes and decisions)">+1 mo</button>
+        <button class="hbtn opt" data-act="nextTurn" data-a="13" title="Advance up to 13 weeks (stops for votes and decisions)">+3 mo</button>
+        <button class="hbtn" data-act="menu" aria-label="Menu">☰</button>
       </div>
-      <div class="panel">${body}</div>
-    </div>`;
+    </header>`;
+  }
+
+  function render() {
+    const s = ui.s;
+    if (s.over) return overScreen(s);
+    route();
+    const vs = views(s);
+    if (!vs.some((x) => x[0] === ui.tab)) ui.tab = 'office';
+    const dock = vs.map(([k, i, name, dot]) => (k === 'sep' ? '<span class="sep" aria-hidden="true"></span>' : `<button class="${ui.tab === k ? 'on' : ''}" data-act="tab" data-a="${k}" aria-current="${ui.tab === k}"><span aria-hidden="true">${i}</span>${esc(name)}${dot ? `<span class="dot">${dot}</span>` : ''}</button>`)).join('');
+    return `<div class="shell">${hud(s)}<nav class="dock" aria-label="Views">${dock}</nav><main class="view">${viewBody(s, ui.tab)}</main></div>`;
   }
 
   // ---------- Overlays ----------
@@ -70,6 +139,7 @@ GR.uiGame = (function () {
     if (m.kind === 'msg') {
       const it = s.inbox.find((x) => x.id === m.id);
       if (!it) { ui.modal = null; return ''; }
+      if (it.kind === 'scene' || it.kind === 'event') return `<div class="overlay" data-act="closeOverlay">${sceneCard(s, it)}</div>`;
       inner = `<div class="band">${esc(it.title)}</div><div class="sheet stack"><div class="small muted">${U.fmtDate(it.w, true)}</div><pre class="msgbody">${esc(it.body)}</pre>
         ${it.chips && it.chips.length ? `<div class="impact">${it.chips.map((c) => `<span class="ichip ${c.good ? 'good' : 'bad'}">${esc(c.t)}</span>`).join('')}</div>` : ''}
         <div class="stack-s">${it.choices.map((c) => ui.btn(esc(c.label), 'choose', it.id + '|' + c.act, 'bb wide', !!c.dis)).join('')}</div>
@@ -79,6 +149,37 @@ GR.uiGame = (function () {
     else if (m.kind === 'race') inner = GR.uiWorld.raceModal(s, m.year, m.id);
     else if (m.kind === 'bill') inner = GR.uiGov.billModal(s, m.id);
     return `<div class="overlay" data-act="closeOverlay"><div class="modal" role="dialog" aria-modal="true" data-act="stop">${inner}</div></div>`;
+  }
+
+  // A decision arrives as a typed memo on paper.
+  function sceneCard(s, it) {
+    const parts = String(it.body).split('\n\n');
+    const kicker = it.kind === 'scene' && parts.length > 1 ? parts.shift() : it.kind === 'event' ? 'Breaking' : '';
+    const sc = it.data && it.data.sc;
+    const left = s.inbox.filter((x) => !x.done && x !== it && (x.kind === 'scene' || x.kind === 'event') && !x.answered).length;
+    return `<div class="scene-card" role="dialog" aria-modal="true" data-act="stop">
+      ${kicker ? `<div class="kicker">${esc(kicker)}</div>` : ''}<h2>${esc(it.title)}</h2>
+      <div class="scene-text">${esc(parts.join('\n\n'))}</div>
+      ${it.chips && it.chips.length ? `<div class="impact">${it.chips.map((c) => `<span class="ichip ${c.good ? 'good' : 'bad'}">${esc(c.t)}</span>`).join('')}</div>` : ''}
+      <div class="scene-choices">${it.choices.map((c, i) => `<button class="choice-btn" data-act="choose" data-a="${esc(it.id + '|' + c.act)}"${c.dis ? ' disabled' : ''}>${esc(c.label)}${!it.answered && sc && sc.choices[i] ? hintOf(s, sc.choices[i].fx) : ''}</button>`).join('')}</div>
+      <div class="more"><span>${U.fmtDate(it.w, true)}</span><span>${[left ? `${left} more waiting` : '', !it.answered ? '<a href="#" data-act="closeOverlay">Decide later</a>' : ''].filter(Boolean).join(' · ')}</span></div>
+    </div>`;
+  }
+  function hintOf(s, fx) {
+    if (!fx) return '';
+    const up = (v) => (v > 0 ? '▲' : '▼');
+    const h = [];
+    if (fx.app) h.push(`approval ${up(fx.app)}`);
+    if (fx.pw) Object.entries(fx.pw).forEach(([k, v]) => { const d = GR.power.defs(s).find((x) => x.k === k); if (d && v) h.push(`${d.name.split(' (')[0].toLowerCase()} ${up(v)}`); });
+    if (fx.cr) Object.entries(fx.cr).forEach(([k, v]) => { if (GR.CRISIS_TYPES[k] && v) h.push(`${GR.CRISIS_TYPES[k].name.toLowerCase()} ${v < 0 ? 'eases' : 'worsens'}`); });
+    if (fx.scan > 0) h.push('scandal risk');
+    if (fx.integ) h.push(`integrity ${up(fx.integ)}`);
+    if (fx.stand) h.push(`party standing ${up(fx.stand)}`);
+    if (fx.resp) h.push(`respect ${up(fx.resp)}`);
+    if (fx.xrel) h.push(`executive ${fx.xrel > 0 ? 'grateful' : 'annoyed'}`);
+    if (fx.jobs > 0) h.push('jobs');
+    if (fx.cost > 0) h.push('costs money');
+    return h.length ? `<small>${esc(h.slice(0, 5).join(' · '))}</small>` : '';
   }
 
   function menu(s) {
@@ -95,7 +196,7 @@ GR.uiGame = (function () {
       ${ui.form.exportCode ? `<textarea class="input" id="expcode" rows="4" readonly>${esc(ui.form.exportCode)}</textarea><p class="small muted">Copied to your clipboard if allowed. Paste it on the title screen to load this career anywhere.</p>` : ''}
       ${ui.form.confirmRetire ? `<div class="note">Retiring ends this career. ${ui.btn('Yes, retire', 'mretire2', '', 'bx')}</div>` : ''}
       <h4>How to play</h4>
-      <p class="small">Each Next Turn is one week. Spend your hours in the Campaign, Office and Profile tabs. Declare for an office in the Campaign tab before the filing deadline, win your party's June primary, then the November general. In office, vote on bills, write laws, build relationships and respect, and run for leadership after each election. Your inbox (envelope) holds decisions; the checkbox counts votes waiting on you.</p>
+      <p class="small">Each week you get a set number of hours. Spend them from the dock: Campaign to run for office, Life & Family for your personal life, and once elected the Situation Room, Legislature, Committees, Negotiations and Bill Builder. Advance a week, a month or a quarter from the top bar; the game stops whenever a vote or decision needs you. Declare for an office before the March filing deadline, win your party's June primary, then the November general. In office, write bills, work the votes, deal with the executive, and keep your word.</p>
       ${ui.btn('Close', 'closeOverlay', '', 'bgr')}
     </div>`;
   }
@@ -224,27 +325,34 @@ GR.uiGame = (function () {
     const out = GR.sim.choose(ui.s, id, act);
     const it = ui.s.inbox.find((x) => x.id === id);
     if (!it || it.done) ui.modal = null;
-    if (out) ui.toast(out);
+    if (out) ui.toast(String(out).split('\n')[0], it && it.chips);
     ui.save();
   });
   A('viewrace', (el, a) => { const [y, id] = a.split('|'); ui.modal = { kind: 'race', year: +y, id }; });
   A('viewpol', (el, a) => { ui.modal = { kind: 'pol', id: a }; });
-  A('nextTurn', () => {
+  const stops = (s) => GR.gov.tasks(s).filter((t) => t.kind === 'vote' || t.kind === 'sign');
+  A('nextTurn', (el, a) => {
     const s = ui.s;
-    const tasks = GR.gov.tasks(s).filter((t) => t.kind === 'vote' || t.kind === 'sign');
+    const n = Math.max(1, +a || 1);
+    const tasks = stops(s);
     const open = s.inbox.filter((x) => !x.done && x.kind === 'debate');
     if ((tasks.length || open.length) && !ui.warned) {
       ui.warned = true;
-      ui.toast(tasks.length ? `You have ${tasks.length} vote${tasks.length === 1 ? '' : 's'} or signature${tasks.length === 1 ? '' : 's'} waiting. Press Next Turn again to skip ${s.settings.autoVote ? '(auto-vote is on)' : '(you will miss them)'}.` : 'A debate invitation is waiting in your inbox. Press Next Turn again to skip it.');
+      ui.toast(tasks.length ? `You have ${tasks.length} vote${tasks.length === 1 ? '' : 's'} or signature${tasks.length === 1 ? '' : 's'} waiting. Press again to skip ${s.settings.autoVote ? '(auto-vote is on)' : '(you will miss them)'}.` : 'A debate invitation is waiting in your inbox. Press again to skip it.');
       return;
     }
     ui.warned = false;
-    s.inbox.forEach((x) => { if (!x.done && x.kind === 'debate') { GR.debate.decline(s, x); x.done = true; } });
-    const before = s.inbox.length;
-    GR.sim.endTurn(s);
+    let fresh = null;
+    for (let i = 0; i < n; i++) {
+      if (i > 0 && (stops(s).length || s.over)) break;
+      s.inbox.forEach((x) => { if (!x.done && x.kind === 'debate') { GR.debate.decline(s, x); x.done = true; } });
+      const before = s.inbox.length;
+      GR.sim.endTurn(s);
+      fresh = s.inbox.slice(0, Math.max(0, s.inbox.length - before + 1)).find((x) => !x.done && !x.answered && ['result', 'debate', 'vp', 'scene', 'event'].includes(x.kind));
+      if (fresh || s.over) break;
+    }
     ui.save();
-    const fresh = s.inbox.slice(0, Math.max(0, s.inbox.length - before + 1)).find((x) => !x.done && (x.kind === 'result' || x.kind === 'debate' || x.kind === 'vp' || x.kind === 'event' || x.kind === 'scene'));
-    if (fresh && (fresh.kind === 'result' || fresh.kind === 'debate' || fresh.kind === 'vp' || fresh.kind === 'scene')) ui.modal = { kind: 'msg', id: fresh.id };
+    if (fresh) ui.modal = { kind: 'msg', id: fresh.id };
   });
   A('msave', () => { ui.toast(GR.state.save(ui.s) ? 'Game saved in this browser.' : 'This browser blocked saving. Use Copy save code instead.'); });
   A('mexport', () => {
@@ -255,7 +363,7 @@ GR.uiGame = (function () {
   A('msetting', (el, a) => { ui.s.settings[a] = !ui.s.settings[a]; });
   A('mtheme', () => {
     const r = document.documentElement;
-    const next = !r.dataset.theme ? 'light' : r.dataset.theme === 'light' ? 'dark' : '';
+    const next = r.dataset.theme === 'dark' ? 'light' : r.dataset.theme === 'light' ? '' : 'dark';
     if (next) r.dataset.theme = next; else delete r.dataset.theme;
     try { localStorage.setItem('grassroots_theme', next); } catch (e) { /* storage unavailable */ }
   });

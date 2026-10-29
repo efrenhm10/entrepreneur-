@@ -10,42 +10,161 @@ GR.uiOffice = (function () {
 
   const leanLabel = (l) => (Math.abs(l) < 1 ? 'Even' : l > 0 ? 'R+' + Math.round(l) : 'D+' + Math.round(-l));
 
+  // ---------- Situation Room ----------
   function render(s) {
     const me = s.pols.me;
     if (!me.seat) return noOffice(s);
     const seat = s.seats[me.seat];
     const off = GR.OFFICES[seat.off];
+    const jur = G().myJur(s);
+    const J = s.jur[jur];
+    const y = U.yearOf(s.week);
     const bk = G().myBody(s);
-    const tasks = G().tasks(s).length;
-    const steer = s.steer && !s.steer.done && s.steer.body === bk;
-    const tabs = [['brief', 'Briefing'], ['bills', 'Bill Constructor'], ['docket', 'Docket', tasks || ''], ['deals', 'Negotiations'], ['rolls', 'Roll Calls'], ['budget', 'Budget'], ['econ', 'Economy']];
-    tabs.push(['power', 'Power Bases']);
-    if (seat.off !== 'school') tabs.push(['cabinet', off.exec ? 'Cabinet' : 'Staff']);
-    if (off.jur !== 'school') tabs.push(['develop', off.exec ? 'Development' : 'District Development']);
-    if (bk) tabs.push(['committees', 'Committees', steer ? '!' : ''], ['leadership', 'Leadership'], ['colleagues', 'Colleagues']);
-    tabs.push(['district', 'District'], ['schedule', 'Schedule']);
-    if (off.exec) tabs.push(['exec', 'Executive Orders']);
-    const cur = ui.cur('office', tabs);
-    const V = GR.uiGov;
-    const body = {
-      brief: () => V.briefing(s), bills: () => V.constructor(s), docket: () => V.docket(s), deals: () => V.negotiations(s), rolls: () => V.rolls(s),
-      budget: () => V.budgetView(s), econ: () => V.economy(s), power: () => GR.uiExec.power(s), cabinet: () => GR.uiExec.cabinet(s), develop: () => GR.uiExec.develop(s), committees: () => V.committees(s), leadership: () => leadership(s, bk), colleagues: () => colleagues(s, bk),
-      district: () => GR.uiExec.dossier(s) + overview(s, seat), schedule: () => schedule(s), exec: () => execOrders(s),
-    }[cur] || (() => V.briefing(s));
-    return `${ui.tabs('office', tabs)}<div class="sheet">${body()}</div>`;
+    const post = me.lead ? GR.LEADERSHIP[me.lead.body].find((p) => p.k === me.lead.post) : null;
+    const lead = `<div class="leader-card">${ui.facePol(s, me)}<div><b>${esc(me.fn + ' ' + me.ln)}</b> ${ui.chip(me.party)}<br><span class="muted small">${esc(W().seatTitle(s, seat))}</span><br>
+      <span class="small">Age ${GR.life.age(s)} · in office since ${me.since || y}</span><br><span class="small">${post ? `<b>${esc(post.name)}</b> · ` : ''}${bk ? esc(GR.comm.myPosts(s).map((x) => x.name + (x.role !== 'Member' ? ` (${x.role})` : '')).join(', ') || 'No committees') : esc(off.exec ? 'Chief executive' : '')}</span><br>
+      <span class="small muted">Next election: ${seat.next} (${Math.max(0, Math.round((GR.elect.generalWeek(seat.next) - s.week) / 4.3))} months)</span></div></div>`;
+    const meters = ui.meter('Approval', me.app / 100, true, Math.round(me.app) + '%') + ui.meter('Respect of colleagues', (me.respect || 0) / 100, true, Math.round(me.respect || 0)) + ui.meter('Party standing', me.standing / 100, true, Math.round(me.standing))
+      + ui.meter('Name recognition', GR.elect.playerRec(s, seat.off) / 100, true, Math.round(GR.elect.playerRec(s, seat.off)) + '%') + ui.meter('Integrity', (me.integrity || 70) / 100, true, Math.round(me.integrity || 70)) + ((me.scandal || 0) > 3 ? ui.meter('Scandal', me.scandal / 100, false, Math.round(me.scandal)) : '');
+    const col1 = ui.panel('Your office', lead + meters + `<div class="row" style="margin-top:6px">${ui.btn('District dossier', 'gotab', 'economy|district', 'bgr sm')}${ui.btn('Profile & family', 'tab', 'profile', 'bgr sm')}</div>`)
+      + ui.panel('How you could fall', threats(s, seat, off))
+      + ui.panel('Power bases', bases(s));
+    const col2 = ui.panel(`Key indicators · ${esc(J.name)}`, indicators(s, J))
+      + ui.panel('Crises & needs', crises(s, J) + `<div class="row" style="margin-top:6px">${ui.btn('Full briefing', 'gotab', 'economy|brief', 'bgr sm')}${ui.btn('Write a bill', 'tab', 'builder', 'bb sm')}</div>`)
+      + ui.panel('Trends', trends(s, J));
+    const col3 = ui.panel('On your desk', desk(s))
+      + ui.panel('Advisers say', advisories(s).map(([txt, lbl, act, arg, urgent]) => `<div class="advice ${urgent ? 'urgent' : ''}"><span>${esc(txt)}</span>${lbl ? ui.btn(lbl, act, arg || '', 'bgr sm') : ''}</div>`).join('') || '<p class="muted small">All quiet.</p>')
+      + ui.panel('Latest cables', s.news.slice(0, 12).map((n) => `<p class="cable ${n.kind === 'gov' ? 'gov' : ''}"><small>${U.fmtDate(n.w)}</small>${esc(n.t)}</p>`).join('') + `<div class="row" style="margin-top:6px">${ui.btn('All news', 'gotab', 'news|headlines', 'bgr sm')}</div>`);
+    return `<div class="vhead"><h2>Situation Room</h2><span class="sub">${esc(G().briefingLabel(s))}</span></div><div class="grid3"><div>${col1}</div><div>${col2}</div><div>${col3}</div></div>`;
+  }
+
+  function threats(s, seat, off) {
+    const me = s.pols.me;
+    const PW = GR.power;
+    const base = PW.get(s, 'base'), party = PW.get(s, 'party');
+    const y = U.yearOf(s.week);
+    const out = [];
+    const add = (name, lvl, desc) => { if (lvl > 4) out.push(ui.meter(name, lvl / 100, false, Math.round(lvl) + '%', desc) + `<p class="tiny muted" style="margin-top:-2px">${esc(desc)}</p>`); };
+    add('Defeat at the polls', U.clamp((55 - me.app) * 2.4 + 22, 2, 98), `Your seat is up in ${seat.next}. Approval ${Math.round(me.app)}%.`);
+    if (base != null) add('Primary challenge', U.clamp((52 - base) * 2.2 + (seat.next - y <= 1 ? 10 : 0), 0, 95), `Your party base sits at ${Math.round(base)}. Below 30 near an election, a challenger files.`);
+    const recall = off.jur === 'city' || off.jur === 'school' || (off.jur === 'state' && ['AK', 'AZ', 'CA', 'CO', 'GA', 'ID', 'KS', 'LA', 'MI', 'MN', 'MT', 'NV', 'NJ', 'ND', 'OR', 'WA', 'WI', 'IL', 'RI', 'VA'].includes(s.home.state));
+    if (recall) add('Recall', U.clamp((38 - me.app) * 3.2, 0, 90), 'Organizers can force a recall when approval falls below 30%.');
+    if (off.k === 'president' || off.k === 'governor') add('Impeachment', U.clamp((me.scandal || 0) * 1.1 + (35 - me.app) * 0.8, 0, 90), 'A hostile legislature can impeach over scandal.');
+    add('Indictment', U.clamp(((me.scandal || 0) - 35) * 1.6 + (45 - (me.integrity || 70)), 0, 90), 'Prosecutors look at high scandal and low integrity.');
+    if (me.lead && party != null) add('Ouster from leadership', U.clamp((40 - party) * 2.6, 0, 90), `Party establishment at ${Math.round(party)}.`);
+    return out.join('') || '<p class="muted small">You are secure for now.</p>';
+  }
+
+  function bases(s) {
+    const P = s.power;
+    if (!P || !P.l) return '<p class="muted small">Your coalition takes shape after your first month in office.</p>';
+    const ds = GR.power.defs(s).slice().sort((a, b) => (P.l[a.k] || 0) - (P.l[b.k] || 0));
+    return ds.slice(0, 6).map((d) => ui.meter(esc(d.name.split(' (')[0]), (P.l[d.k] || 0) / 100, true, Math.round(P.l[d.k] || 0), d.desc || '')).join('') + `<div class="row" style="margin-top:6px">${ui.btn('All power bases', 'gotab', 'power|bases', 'bgr sm')}</div>`;
+  }
+
+  function indicators(s, J) {
+    const m = J.F.mac;
+    const t = GR.fisc.totals(J);
+    const prev = J.F.hist.length >= 5 ? J.F.hist[J.F.hist.length - 5] : null;
+    const d = (now, was, good, dig = 1) => (was == null || Math.abs(now - was) < 0.05 ? '' : ` <span class="tiny ${(now - was) * good > 0 ? 'good' : 'bad'}">${now > was ? '▲' : '▼'}${Math.abs(now - was).toFixed(dig)}</span>`);
+    const cls = (v, g, b) => (v >= g ? 'good' : v <= b ? 'bad' : '');
+    const bal = t.bal / Math.max(1, t.spend) * 100;
+    return `<div class="ind">
+      ${ui.stat('Growth', `<span class="${cls(m.g, 2.5, 0.5)}">${m.g.toFixed(1)}%</span>${d(m.g, prev && prev.g, 1)}`)}
+      ${ui.stat('Unemployment', `<span class="${cls(-m.u, -4.2, -6.5)}">${m.u.toFixed(1)}%</span>${d(m.u, prev && prev.u, -1)}`)}
+      ${ui.stat('Inflation', `${m.pi.toFixed(1)}%${d(m.pi, prev && prev.pi, -1)}`)}
+      ${ui.stat(J.k === 'nation' ? 'Deficit' : 'Budget balance', `<span class="${bal >= 0 ? 'good' : bal < -12 ? 'bad' : ''}">${U.money(t.bal)}</span>`)}
+      ${ui.stat(J.k === 'nation' ? 'Debt / GDP' : 'Debt', J.k === 'nation' ? (J.F.debt / m.gdp * 100).toFixed(0) + '%' : U.money(J.F.debt))}
+      ${ui.stat('Credit rating', J.F.ratingLabel)}
+      ${ui.stat('Confidence', m.cc.toFixed(0))}
+      ${ui.stat('Voter anger', Math.round(GR.fisc.dissatisfaction(J)))}
+    </div>
+    <p class="small muted" style="margin-top:6px">${esc(J.name)} spends ${U.money(t.spend)} a year and raises ${U.money(t.rev)}. Population ${U.num(J.pop || 0)}.</p>`;
+  }
+
+  function crises(s, J) {
+    const rows = Object.entries(J.F.crises).sort((a, b) => b[1].s - a[1].s).slice(0, 6);
+    return rows.map(([k, c]) => { const d4 = c.hist.length >= 4 ? c.s - c.hist[c.hist.length - 4] : 0; return ui.meter(`${esc(GR.CRISIS_TYPES[k].name)}${Math.abs(d4) >= 0.5 ? ` <span class="tiny ${d4 > 0 ? 'bad' : 'good'}">${d4 > 0 ? '▲' : '▼'}${Math.abs(d4).toFixed(1)}</span>` : ''}`, c.s / 100, false, Math.round(c.s)); }).join('') || '<p class="muted small">No pressing crises.</p>';
+  }
+
+  function trends(s, J) {
+    const h = J.F.hist.slice(-24);
+    const row = (name, vals, color, fmt) => `<div class="spark-row"><span>${name}</span>${ui.spark(vals, color)}<span class="v">${vals.length ? fmt(vals[vals.length - 1]) : '—'}</span></div>`;
+    return row('Approval', s.appHist || [], '#7bd88f', (v) => v + '%') + row('Growth', h.map((x) => x.g), '#6fb3ff', (v) => v.toFixed(1) + '%') + row('Jobless', h.map((x) => x.u), '#f0c05a', (v) => v.toFixed(1) + '%') + row('Balance', h.map((x) => x.bal), '#c39bff', (v) => U.money(v)) + '<p class="tiny muted">Quarterly, last six years.</p>';
+  }
+
+  // Votes and decisions waiting this week, with one-click answers.
+  function desk(s) {
+    const tasks = G().tasks(s);
+    const L = GR.legis;
+    const scenes = s.inbox.filter((x) => !x.done && (x.kind === 'scene' || x.kind === 'event') && !x.answered);
+    const rows = tasks.slice(0, 6).map((t) => {
+      const b = t.b;
+      const c = L.components(s, s.pols.me, b);
+      const line = L.partyLine(s, b, s.pols.me.party);
+      const what = t.kind === 'vote' ? (b.stage === 'cloture' ? 'Cloture vote' : 'Floor vote') : t.kind === 'comm' ? 'You chair the committee' : t.kind === 'cvote' ? 'Committee markup vote' : 'Awaiting your signature';
+      const btns = t.kind === 'vote' ? ui.btn('Yea', 'decide', `${b.id}|vote|y`, 'bgr sm yes') + ui.btn('Nay', 'decide', `${b.id}|vote|n`, 'bgr sm no')
+        : t.kind === 'sign' ? ui.btn('Sign', 'decide', `${b.id}|sign|y`, 'bgr sm yes') + ui.btn('Veto', 'decide', `${b.id}|sign|n`, 'bgr sm no')
+        : t.kind === 'cvote' ? ui.btn('Report', 'decide', `${b.id}|cvote|y`, 'bgr sm yes') + ui.btn('Oppose', 'decide', `${b.id}|cvote|n`, 'bgr sm no') : '';
+      return `<div class="opp"><span class="t"><b class="small">${esc(b.title)}</b><br><span class="tiny muted">${what} · district ${c.di >= 0 ? '+' : ''}${c.di.toFixed(2)} · party ${line > 0 ? 'yes' : line < 0 ? 'no' : 'free'}</span></span><span class="row">${btns}${ui.btn('Open', 'legsel', b.id, 'bgr sm')}</span></div>`;
+    });
+    const sc = scenes.slice(0, 3).map((it) => `<div class="opp"><span class="t"><b class="small">${esc(it.title)}</b><br><span class="tiny muted">Decision waiting</span></span>${ui.btn('Decide', 'openmsg', it.id, 'bo sm')}</div>`);
+    const more = tasks.length > 6 ? `<p class="tiny muted">${tasks.length - 6} more on the Legislature screen.</p>` : '';
+    return rows.concat(sc).join('') + more || `<p class="muted small">Nothing waiting. ${s.hoursLeft} hours to spend this week.</p>`;
+  }
+
+  function advisories(s) {
+    const me = s.pols.me;
+    const L = GR.legis;
+    const seat = s.seats[me.seat];
+    const off = GR.OFFICES[seat.off];
+    const jur = G().myJur(s);
+    const J = s.jur[jur];
+    const bk = G().myBody(s);
+    const out = [];
+    const mine = (J.bills || []).filter((b) => b.spon === 'me' && L.OPEN(b));
+    if (s.steer && !s.steer.done && s.steer.body === bk) out.push([`Steering is handing out committee seats (meets ${U.fmtDate(s.steer.due)}). Put up capital and favors for the panels you want.`, 'Committees', 'tab', 'committees', true]);
+    const due = s.budgetDue && s.budgetDue[jur];
+    if (due && off.exec) out.push([`Your FY${due.fy} budget is due ${U.fmtDate(due.due)}.`, 'Bill Builder', 'tab', 'builder', true]);
+    mine.filter((b) => b.blockedBy).slice(0, 2).forEach((b) => out.push([`The ${b.title} is bottled up in committee by ${W().fullName(s.pols[b.blockedBy])}.`, 'Open', 'legsel', b.id, true]));
+    mine.filter((b) => b.vetoThreat).slice(0, 2).forEach((b) => out.push([`The ${GR.xneg.exTitle(s, b.jur).toLowerCase()} threatens to veto your ${b.title}.`, 'Negotiate', 'gotab', 'nego|exec', true]));
+    mine.filter((b) => b.xcounter).slice(0, 2).forEach((b) => out.push([`The ${GR.xneg.exTitle(s, b.jur).toLowerCase()}'s staff sent counteroffers on the ${b.title}.`, 'See offers', 'gotab', 'nego|exec']));
+    mine.filter((b) => b.filibustered && L.OPEN(b)).slice(0, 1).forEach((b) => out.push([`The ${b.title} is being filibustered.`, 'Open', 'legsel', b.id]));
+    if (!off.exec && bk) {
+      const ag = GR.xneg.agenda(s, jur).filter((b) => b.body === bk && !b.my[bk]);
+      if (ag.length) out.push([`The ${GR.xneg.exTitle(s, jur).toLowerCase()}'s priority, the ${ag[0].title}, is before your chamber. Your vote has a price.`, 'Open', 'legsel', ag[0].id]);
+      if (!mine.length && me.pp >= 20) out.push(['You have no bills moving. Write one that answers your district\'s worst crisis.', 'Bill Builder', 'tab', 'builder']);
+    }
+    if (off.exec) {
+      const desk = G().tasks(s).filter((t) => t.kind === 'sign');
+      if (desk.length) out.push([`${desk.length} bill${desk.length === 1 ? ' is' : 's are'} on your desk awaiting signature.`, 'Desk', 'tab', 'legis', true]);
+      const C = s.cabinet;
+      if (C && Object.values(C.posts || {}).some((p) => p && p.acting)) out.push(['Acting officials still hold cabinet posts. Appoint your own people.', 'Cabinet', 'tab', 'cabinet']);
+    }
+    const w = GR.power.weakest && GR.power.weakest(s);
+    const wl = w && s.power.l[w.k];
+    if (w && wl < 28) out.push([`${w.name.split(' (')[0]} are turning against you (${Math.round(wl)}).`, 'Power', 'gotab', 'power|bases']);
+    if (me.app < 40) out.push([`Approval is ${Math.round(me.app)}%. Deliver for the district and take popular stands.`, '', '']);
+    if ((me.scandal || 0) > 30) out.push(['Scandal is building. Integrity and a strong press operation help.', '', '']);
+    if (me.pp > 95) out.push(['Your political capital is near the cap and starts eroding above 100. Spend it on bills, deals or seats.', '', '']);
+    const y = U.yearOf(s.week);
+    if (seat.next === y && !s.campaign && s.week < GR.elect.generalWeek(y)) out.push([`Your seat is up this November. Declare for re-election.`, 'Campaign', 'tab', 'campaign', true]);
+    if (s.hoursLeft >= 20) out.push([`${s.hoursLeft} hours unspent this week. Meet colleagues, hold events, or court a power base.`, 'Schedule', 'gotab', 'power|schedule']);
+    return out.slice(0, 7);
   }
 
   function noOffice(s) {
     const me = s.pols.me;
     const job = GR.JOB[me.job];
-    return `${ui.tabs('office', [['overview', 'Overview']])}<div class="sheet stack">
-      <div class="title-c">Private Citizen</div>
-      <div class="side"><div>${ui.facePol(s, me)}</div><div class="stack">
-        <p>You do not hold public office yet. You work as a <b>${esc(job.name.toLowerCase())}</b> in ${esc(s.home.cityName)}.</p>
-        <p>Build name recognition and party connections from the Profile → Life tab, then declare for a race in the Campaign tab. Most careers start on the school board or city council, which hold elections in odd-numbered years.</p>
-        <div class="row">${ui.btn('Find a race to run in', 'gotab', 'campaign', 'bb pill')}${ui.btn('Community activities', 'gotab', 'profile|life', 'bgr')}</div>
-        ${ui.kv([['Local name recognition', Math.round(me.recLocal) + '%'], ['Political points', U.num(me.pp)], ['Party standing', Math.round(me.standing) + ' / 100'], ['War chest', U.money(me.warChest)]])}
-      </div></div></div>`;
+    const J = s.jur.state;
+    return `<div class="vhead"><h2>Home</h2><span class="sub">${esc(s.home.cityName)}, ${s.home.state} ${s.home.zip}</span></div><div class="grid3">
+      <div>${ui.panel('Private citizen', `<div class="leader-card">${ui.facePol(s, me)}<div><b>${esc(me.fn + ' ' + me.ln)}</b> ${ui.chip(me.party)}<br><span class="small">${esc(job.name)} · age ${GR.life.age(s)}</span></div></div>
+        ${ui.meter('Local name recognition', me.recLocal / 100, true, Math.round(me.recLocal) + '%')}${ui.meter('Party standing', me.standing / 100, true, Math.round(me.standing))}
+        <p class="small">You do not hold office yet. Build name recognition and party connections, then declare for a race. Most careers start on the school board or city council, which hold elections in odd-numbered years.</p>
+        <div class="row" style="margin-top:8px">${ui.btn('Find a race to run in', 'tab', 'campaign', 'bo')}${ui.btn('Community activities', 'gotab', 'profile|life', 'bgr')}</div>`)}</div>
+      <div>${ui.panel(`Key indicators · ${esc(J.name)}`, indicators(s, J))}${ui.panel('Crises & needs', crises(s, J))}</div>
+      <div>${ui.panel('Your resources', ui.kv([['Political points', U.num(me.pp)], ['War chest', U.money(me.warChest)], ['Savings', U.money(me.money)], ['Donor network', me.network + ' contacts']]))}${ui.panel('Latest cables', s.news.slice(0, 10).map((n) => `<p class="cable"><small>${U.fmtDate(n.w)}</small>${esc(n.t)}</p>`).join('') || '<p class="muted small">Quiet.</p>')}</div>
+    </div>`;
   }
 
   function overview(s, seat) {
@@ -182,5 +301,5 @@ GR.uiOffice = (function () {
   A('donate', (el, a) => { const [p, amt] = a.split('|'); ui.res(G().donate(ui.s, p, +amt)); });
   A('eo', (el, a) => { const [k, to] = a.split('|'); ui.res(G().execOrder(ui.s, k, +to)); });
 
-  return { render };
+  return { render, noOffice, overview, schedule, leadership, colleagues, execOrders };
 })();

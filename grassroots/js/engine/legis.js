@@ -273,6 +273,11 @@ GR.legis = (function () {
     pc += whip * 0.45 * (1 - reb);
     const ex = G().execOf(s, b.jur);
     if (ex && ex.party === p.party && (b.spon === ex.id || b.kind === 'budget')) pc -= reb * 0.4;
+    // The executive's public position moves their party's lawmakers.
+    if (ex && ex.id !== p.id) {
+      if (b.execEndorse) pc += ex.party === p.party ? 0.06 : -0.02;
+      if (b.vetoThreat) pc += ex.party === p.party ? -0.08 : 0.01;
+    }
     pc = U.clamp(pc, -1, 1);
     // Economic development deals and megaproject authorizations.
     if (b.dev && GR.develop) { const x = GR.develop.voteTerms(s, p, b); it = U.clamp(it + x.it, -1, 1); di = U.clamp(di + x.di, -1, 1); ae = U.clamp(x.ae, -1, 1); pc = U.clamp(pc + x.pc, -1, 1); }
@@ -397,6 +402,9 @@ GR.legis = (function () {
         }
         b.task = null;
         if (d === 'f') { b.endorse = { party: chair.party, body: b.body, w: 0.08 }; toFloor(s, b, true); return; }
+      } else if (chair && b.leaderPush === b.body) {
+        // Leadership cut a deal with the executive: the chair moves it.
+        b.agreed[chair.id] = true;
       } else if (chair && !b.agreed[chair.id]) {
         const c = components(s, chair, b);
         if (c.score < (b.spon === 'me' ? 0.02 : -0.02) && !must) {
@@ -463,6 +471,7 @@ GR.legis = (function () {
       record(s, b, b.body, r, 'floor', need);
       b.task = null;
       if (r.y < need) { kill(s, b, `failed in the ${GR.BODIES[b.body].name}, ${r.y}-${r.n}`); return; }
+      if (GR.xneg) GR.xneg.afterChamber(s, b);
       const bs = G().bodiesOf(s, b.jur);
       const next = bs[bs.indexOf(b.body) + 1];
       if (next) { b.body = next; b.stage = 'committee'; b.comm = committeeFor(s, b); b.due = s.week + 1; b.warnedChair = false; b.held = false; b.agreed = b.agreed || {}; return; }
@@ -477,6 +486,7 @@ GR.legis = (function () {
       let sign;
       if (!ex) sign = true;
       else if (ex.isPlayer) { if (!b.my.sign) { b.my.sign = 'y'; } sign = b.my.sign === 'y'; }
+      else if (GR.xneg) sign = GR.xneg.decide(s, b, ex);
       else { const c = components(s, ex, b); sign = c.score > -0.06 || b.kind === 'cr' || (b.kind === 'budget' && c.score > -0.15); }
       b.task = null;
       if (sign) { enact(s, J, b); return; }
@@ -594,6 +604,13 @@ GR.legis = (function () {
       const me = s.pols.me;
       me.app = U.clamp(me.app + ((v === 'y') === (c.di > 0) ? 0.8 : -1.2), 1, 99);
       if (b.spon && b.spon !== 'me') G().addRel(s, b.spon, v === 'y' ? 10 : -15);
+      // Promises made to legislative leaders.
+      const pr = (s.promises || {})[b.id];
+      if (pr) {
+        delete s.promises[b.id];
+        if (v === 'y') { G().addRel(s, pr, 10); G().addRespect(s, 1); }
+        else { G().addRel(s, pr, -35); G().addRespect(s, -6); GR.sim.msgInbox(s, 'You broke your word', `You promised ${W().fullName(s.pols[pr])} you would sign the ${b.title}, then vetoed it. Leadership will remember.`); }
+      }
     }
     return { ok: true };
   }
@@ -1037,6 +1054,6 @@ GR.legis = (function () {
 
   return {
     WEIGHTS, emptyProv, allBills, findBill, newBill, describe, leanOf, components, roll, needed, analysis, stepBill, tasks, decide, introCost, validate, introduce,
-    committeeName, committeeFor, counterparties, negotiate, canEarmark, earmarkName, provCount, ctxOf, discharge, callVote, reallocate, audit, npcBills, budgetBill, submitBudget, week, fiscalYear, fmtTax, fmtParam, partyLine, rebellion, exposure, OPEN,
+    committeeName, committeeFor, counterparties, negotiate, canEarmark, earmarkName, amendFor, provCount, ctxOf, discharge, callVote, reallocate, audit, npcBills, budgetBill, submitBudget, week, fiscalYear, fmtTax, fmtParam, partyLine, rebellion, exposure, OPEN,
   };
 })();
