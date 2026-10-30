@@ -194,6 +194,17 @@ a:hover { text-decoration: underline; }
 .cable { font-size: .84rem; padding: 4px 0; border-bottom: 1px dashed var(--line); }
 .cable small { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
 .cable.gov { border-left: 2px solid var(--blue); padding-left: 6px; }
+.newsstrip { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 4px; padding: 8px 10px; margin-bottom: 12px; }
+.newsstrip .nhead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.newsstrip .nhead .sp { flex: 1; }
+.nline { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; font: inherit; font-size: .86rem; color: var(--ink); background: none; border: 0; border-top: 1px dashed var(--line); padding: 4px 0; min-width: 0; }
+.nline .t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.nline small { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.nline .tag { flex: none; font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+.nline.gov .tag { color: var(--blue); border-color: var(--blue); }
+.nline.msg { cursor: pointer; font-weight: 600; }
+.nline.msg .tag { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+.nline.msg:hover .t { text-decoration: underline; }
 .leader-card { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: start; margin-bottom: 6px; }
 .leader-card .face { border-radius: 6px; border: 1px solid var(--line-2); }
 .leader-card b { font-family: var(--font-h); font-size: 1.15rem; font-weight: 500; letter-spacing: .02em; }

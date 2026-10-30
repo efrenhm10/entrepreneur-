@@ -132,6 +132,32 @@ GR.watch = (function () {
     GR.sim.msgInbox(s, `Open seat: ${GR.OFFICES[seat.off].name}`, `${W().fullName(p)} is giving up ${title} to run for ${W().seatTitle(s, s.seats[race.seat])}. The ${seat.next} race will have no incumbent.\n\nFiling closes ${U.fmtDate(E().filingWeek(seat.next, seat.off))}. See Campaign → Races to watch.`);
   }
 
+  // ---------- Can you win it? ----------
+  // A plain read on your chances, with the reasons.
+  function chances(s, x) {
+    const me = s.pols.me;
+    const off = x.off;
+    const seat = x.seat;
+    const why = [];
+    const myRec = E().playerRec(s, off.k);
+    const inc = x.p && !x.p.isPlayer && !x.open ? x.p : null;
+    const oppRec = inc ? U.clamp(45 + (inc.terms[off.k] || 0) * 6 + off.level * 3, 3, 95) : 12 + off.level * 4;
+    const pr = off.k === 'president' ? null : W().seatProfile(s, seat);
+    const fav = pr ? (me.party === 'R' ? pr.lean : -pr.lean) : 0;
+    const myLevel = me.seat ? GR.OFFICES[s.seats[me.seat].off].level : 0;
+    const cost = E().scale(s, seat);
+    const ratio = me.warChest / Math.max(1, cost);
+    let z = fav / 7 + (myRec - oppRec) / 22 + (x.open ? 0.7 : 0) + U.clamp(ratio - 0.3, -0.5, 0.8) - Math.max(0, off.level - myLevel - 2) * 0.55;
+    if (inc && inc.party === me.party) { z -= 1.1; why.push(`You'd have to beat ${W().fullName(inc)}, your own party's incumbent, in the primary`); }
+    if (x.open) why.push('Open seat: no incumbent');
+    if (pr && Math.abs(fav) >= 2) why.push(fav > 0 ? `The district leans your way (${me.party}+${Math.round(Math.abs(fav))})` : `The district leans against your party (${me.party === 'R' ? 'D' : 'R'}+${Math.round(Math.abs(fav))})`);
+    if (oppRec - myRec > 15) why.push(`${inc ? `${W().fullName(inc)} is` : 'Likely opponents are'} far better known (${Math.round(oppRec)}% name recognition vs your ${Math.round(myRec)}%)`);
+    if (ratio < 0.3) why.push(`A typical race costs about ${U.money(cost)}; you have ${U.money(me.warChest)} saved`);
+    if (off.level - myLevel > 2) why.push('A big jump from where you are now');
+    const k = z > 0.6 ? 'favored' : z > -0.4 ? 'competitive' : z > -1.4 ? 'uphill' : 'long';
+    return { k, z, label: { favored: 'Favored', competitive: 'Competitive', uphill: 'Uphill', long: 'Long shot' }[k], why, cost, oppRec, myRec };
+  }
+
   // ---------- What's coming up near you ----------
   function upcoming(s) {
     const me = s.pols.me;
@@ -164,9 +190,14 @@ GR.watch = (function () {
       const away = seat.next - y;
       if (open) score += 3;
       score += U.clamp(fav / 6, -2, 1.5) - Math.max(0, away - 1) * 0.6;
-      return { id, seat, off, p, next: seat.next, away, open, tags, score, canRun: E().canRun(s, id) };
+      const x = { id, seat, off, p, next: seat.next, away, open, tags, score, canRun: E().canRun(s, id) };
+      x.odds = chances(s, x);
+      x.score = score + x.odds.z;
+      // Too young to serve by election day: not a race for you yet.
+      x.tooYoung = !x.canRun.ok && /Must be/.test(x.canRun.why || '');
+      return x;
     }).filter((x) => x.p ? !x.p.isPlayer : true).sort((a, b) => a.next - b.next || a.off.level - b.off.level);
   }
 
-  return { LEG, MAYOR, COUNCIL, limit, limited, limitText, homeSeatIds, planFor, month, upcoming, cityKey, leaving };
+  return { chances, LEG, MAYOR, COUNCIL, limit, limited, limitText, homeSeatIds, planFor, month, upcoming, cityKey, leaving };
 })();

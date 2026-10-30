@@ -26,7 +26,7 @@ GR.uiGame = (function () {
     const bk = G().myBody(s);
     const tasks = G().tasks(s).length;
     const n = unread(s);
-    const out = [['office', '🏛️', seat ? 'Situation Room' : 'Home']];
+    const out = [['office', '🏛️', seat ? 'Situation Room' : 'Home'], ['news', '📰', 'News', n]];
     if (seat) {
       const hasLeg = G().bodiesOf(s, off.jur).length;
       if (hasLeg) out.push(['legis', '📜', 'Legislature', tasks]);
@@ -40,7 +40,7 @@ GR.uiGame = (function () {
       if (off.exec) out.push(['orders', '🖋️', 'Executive Orders']);
       out.push(['sep']);
     }
-    out.push(['campaign', '🗳️', 'Campaign', s.campaign ? '' : ''], ['politicians', '👥', 'Politicians'], ['elections', '🗺️', 'Elections'], ['metrics', '📊', 'Metrics'], ['profile', '👤', 'Life & Family'], ['news', '📰', 'News', n]);
+    out.push(['campaign', '🗳️', 'Campaign', s.campaign ? '' : ''], ['politicians', '👥', 'Politicians'], ['elections', '🗺️', 'Elections'], ['metrics', '📊', 'Metrics'], ['profile', '👤', 'Life & Family']);
     return out;
   }
   const xAlerts = (s) => (GR.legis.allBills(s).filter((b) => b.spon === 'me' && b.xcounter && GR.legis.OPEN(b)).length || '');
@@ -105,10 +105,12 @@ GR.uiGame = (function () {
         ${st('Capital', U.num(Math.floor(me.pp)), '', 'Political points: spent on bills, deals, steering bids and favors')}
         ${st('Hours', s.hoursLeft, s.hoursLeft < 4 ? 'bad' : '', 'Hours left this week')}
         ${st('War chest', U.money(me.warChest), '', 'Saved for your next campaign')}
-        ${st('Growth', m.g.toFixed(1) + '%', lvl(m.g, 2.5, 0.5), `${J.name}: real GDP growth`, 'tab', 'economy')}
+        ${seat ? `${st('Growth', m.g.toFixed(1) + '%', lvl(m.g, 2.5, 0.5), `${J.name}: real GDP growth`, 'tab', 'economy')}
         ${st('Jobless', m.u.toFixed(1) + '%', m.u > 6.5 ? 'bad' : m.u < 4.2 ? 'good' : '', `${J.name}: unemployment`, 'tab', 'economy')}
         ${st(jur === 'nation' ? 'Deficit' : 'Budget', (bal >= 0 ? '+' : '') + bal.toFixed(0) + '%', bal < -12 ? 'bad' : bal >= 0 ? 'good' : '', `${J.name}: surplus or deficit as a share of spending`, 'tab', 'budget')}
-        ${st('Rating', J.F.ratingLabel, /^A/.test(J.F.ratingLabel) ? 'good' : /^B/.test(J.F.ratingLabel) ? 'bad' : '', 'Credit rating')}
+        ${st('Rating', J.F.ratingLabel, /^A/.test(J.F.ratingLabel) ? 'good' : /^B/.test(J.F.ratingLabel) ? 'bad' : '', 'Credit rating')}` : `${st('Name rec.', Math.round(me.recLocal) + '%', me.recLocal < 10 ? 'bad' : '', 'Local name recognition: how many voters know who you are')}
+        ${st('Savings', U.money(me.money), '', 'Personal savings')}
+        ${st('Party', Math.round(me.standing), '', 'Standing with your party: matters in primaries')}`}
         ${st('Inbox', n, n ? 'alert' : '', 'Unread messages and decisions', 'gotab', 'news|inbox')}
         ${me.seat ? st('On desk', tasks, tasks ? 'alert' : '', 'Votes and decisions waiting on you', 'tab', 'legis') : ''}
       </div>

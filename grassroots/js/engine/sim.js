@@ -21,7 +21,7 @@ GR.sim = (function () {
     const me = s.pols.me;
     inbox(s, {
       title: 'Welcome to Grassroots', kind: 'info',
-      body: `You are ${me.fn} ${me.ln}, a ${GR.PARTIES[me.party].noun} in ${s.home.cityName}, ${GR.STATE[s.home.state].name}.\n\nEach week you have a limited number of hours. Spend them in the Campaign, Office and Profile tabs, then press Next Turn.\n\nStart small: school board and city council races are held in odd years, legislative and federal races in even years. Declare in the Campaign tab before the filing deadline (mid-March), win your primary in June and the general election in November.\n\nOnce elected, relationships and respect decide your votes and your rise through leadership.`,
+      body: `You are ${me.fn} ${me.ln}, a ${GR.PARTIES[me.party].noun} in ${s.home.cityName}, ${GR.STATE[s.home.state].name}, and nobody knows your name yet.\n\nHow it works:\n• Each week you have a set number of hours (your day job takes the rest). Spend them, then press Next week (or +1 mo to move faster; the game stops when something needs you).\n• Home shows your next step: the most realistic race near you, when filing closes, and what you need to compete.\n• Build name recognition, money and party standing through community work (Life & Family → Life).\n• Declare in Campaign before the filing deadline (usually mid-March), win your party's primary in June, then the general in November. School board and city council elections are in odd years; the legislature and Congress in even years.\n\nOnce in office, the game opens up: the Legislature, Committees, the Budget, deals with the executive, and leadership races.`,
     });
   }
   function inboxResult(s, race, stage, won) {

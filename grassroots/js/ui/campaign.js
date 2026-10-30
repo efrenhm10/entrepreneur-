@@ -23,14 +23,19 @@ GR.uiCampaign = (function () {
 
   // ---------- Races to watch ----------
   // Every seat covering your home: who holds it, when it's up, and what makes it a good time.
+  const oddsChip = (o) => `<span class="chip ${o.k === 'favored' ? 'tgood' : o.k === 'competitive' ? 'twarn' : 'tbad'}" title="${esc(o.why.join('. '))}">${esc(o.label)}</span>`;
   const tagHtml = (tags) => tags.map(([t, c]) => `<span class="chip ${c === 'good' ? 'tgood' : c === 'bad' ? 'tbad' : c === 'warn' ? 'twarn' : ''}">${esc(t)}</span>`).join(' ');
   function watchList(s, n) {
     if (!GR.watch) return '';
-    const all = GR.watch.upcoming(s);
-    const list = n ? all.slice().sort((a, b) => b.open - a.open || b.score - a.score || a.next - b.next).slice(0, n) : all;
+    // Officeholders only care about lateral moves and step-ups, not a seat below the one they hold.
+    const my = s.pols.me.seat && s.seats[s.pols.me.seat];
+    const lvl = my ? GR.OFFICES[my.off].level : 0;
+    const all = GR.watch.upcoming(s).filter((x) => !x.tooYoung && (!my || (x.id !== s.pols.me.seat && x.off.level >= lvl)));
+    // Realistic chances first, sooner first.
+    const list = n ? all.slice().sort((a, b) => b.score - a.score - (b.away - a.away) * 0.3).slice(0, n) : all;
     if (!list.length) return '<p class="muted small">No races near you.</p>';
-    return list.map((x) => `<div class="opp${x.open ? ' openseat' : ''}"><span class="t"><b class="small">${esc(x.off.name)}</b> <span class="tiny muted">${esc(W().seatTitle(s, x.seat))}</span><br>
-      <span class="tiny">${x.next} · ${x.away <= 0 ? 'this year' : x.away === 1 ? 'next year' : `in ${x.away} years`} · ${x.p ? `${ui.plink(s, x.p.id)}` : 'vacant'}</span><br>${tagHtml(x.tags)}</span>
+    return list.map((x) => `<div class="opp${x.open ? ' openseat' : ''}"><span class="t"><b class="small">${esc(x.off.name)}</b> <span class="tiny muted">${esc(W().seatTitle(s, x.seat))}</span> ${oddsChip(x.odds)}<br>
+      <span class="tiny">${x.next} · ${x.away <= 0 ? 'this year' : x.away === 1 ? 'next year' : `in ${x.away} years`} · ${x.p ? `${ui.plink(s, x.p.id)}` : 'vacant'}</span><br>${tagHtml(x.tags)}${x.odds.why.length ? `<div class="tiny muted" style="margin-top:3px">${esc(x.odds.why.slice(0, 2).join(' · '))}</div>` : ''}</span>
       ${x.canRun.ok ? ui.btn('Declare', 'declare', x.id, 'bb sm') : `<span class="tiny muted" style="max-width:130px;text-align:right">${esc(x.canRun.why)}</span>`}</div>`).join('');
   }
 
@@ -52,7 +57,8 @@ GR.uiCampaign = (function () {
         const fee = E().filingFee(s, seat);
         const pr = seat.off === 'president' ? null : W().seatProfile(s, seat);
         const w = GR.watch ? GR.watch.upcoming(s).find((x) => x.id === id) : null;
-        rows.push(`<tr class="${seat.holder === 'me' ? 'me' : ''}"><td><b>${esc(GR.OFFICES[off].name)}</b><br><span class="small">${esc(W().seatTitle(s, seat))}</span></td><td>${inc ? (inc.isPlayer ? '<b>You</b>' : ui.plink(s, inc.id)) : '<span class="muted">Vacant</span>'}${w ? `<br>${tagHtml(w.tags.filter((t) => !/^Leans|^Even/.test(t[0])))}` : ''}</td><td class="small">${pr ? leanLabel(pr.lean) + '<br>' + U.num(pr.pop) + ' people' : 'Nation'}</td><td>${y}<br><span class="small muted">file by ${U.fmtDate(E().filingWeek(y, off))}</span></td><td>${chk.ok ? ui.btn(chk.re ? 'Run for re-election' : `Declare (${U.money(fee)})`, 'declare', id, 'bb sm') : `<span class="small muted">${esc(chk.why)}</span>`}</td></tr>`);
+        if (w && w.tooYoung) w.tags = w.tags.concat([['Too young yet', '']]);
+        rows.push(`<tr class="${seat.holder === 'me' ? 'me' : ''}"><td><b>${esc(GR.OFFICES[off].name)}</b><br><span class="small">${esc(W().seatTitle(s, seat))}</span></td><td>${inc ? (inc.isPlayer ? '<b>You</b>' : ui.plink(s, inc.id)) : '<span class="muted">Vacant</span>'}${w ? `<br>${w.tooYoung ? '' : oddsChip(w.odds) + ' '}${tagHtml(w.tags.filter((t) => !/^Leans|^Even/.test(t[0])))}` : ''}</td><td class="small">${pr ? leanLabel(pr.lean) + '<br>' + U.num(pr.pop) + ' people' : 'Nation'}</td><td>${y}<br><span class="small muted">file by ${U.fmtDate(E().filingWeek(y, off))}</span></td><td>${chk.ok ? ui.btn(chk.re ? 'Run for re-election' : `Declare (${U.money(fee)})`, 'declare', id, 'bb sm') : `<span class="small muted">${esc(chk.why)}</span>`}</td></tr>`);
       });
     });
     return `${ui.tabs('campaign', [['run', 'Run for Office']])}<div class="sheet stack">
@@ -346,5 +352,27 @@ GR.uiCampaign = (function () {
   A('mstate', (el, a) => { ui.sel.mstate = a; });
   A('campstate', (el, a) => { ui.sel.area = a; ui.sub.campaign = 'events'; });
 
-  return { render, watchList };
+  // The best realistic first (or next) race, and what it takes.
+  function nextStep(s) {
+    if (!GR.watch) return '';
+    const me = s.pols.me;
+    const all = GR.watch.upcoming(s).filter((x) => !x.tooYoung && (!me.seat || x.off.level > GR.OFFICES[s.seats[me.seat].off].level));
+    if (!all.length) return '<p class="small muted">No races within reach right now.</p>';
+    const best = all.slice().sort((a, b) => (b.odds.z - b.away * 0.35) - (a.odds.z - a.away * 0.35))[0];
+    const y = U.yearOf(s.week);
+    const fw = E().filingWeek(best.next, best.seat.off);
+    const ow = E().declareOpenWeek(best.next);
+    const wk = (w) => Math.max(0, Math.round((w - s.week)));
+    const when = s.week < ow ? `Filing opens ${U.fmtDate(ow)} (${wk(ow)} weeks)` : s.week <= fw ? `<b class="warn">Filing closes ${U.fmtDate(fw)} (${wk(fw)} weeks)</b>` : 'Filing has closed';
+    const o = best.odds;
+    const rec = Math.round(o.myRec), need = Math.round(Math.min(90, o.oppRec * 0.8));
+    return `<div class="opp openseat"><span class="t"><b>${esc(best.off.name)}</b> <span class="tiny muted">${esc(W().seatTitle(s, best.seat))}</span> ${oddsChip(o)}<br><span class="tiny">Election ${best.next} · ${when}</span><br><span class="tiny muted">${esc(o.why.join(' · ') || 'A realistic place to start.')}</span></span>${best.canRun.ok ? ui.btn('Declare', 'declare', best.id, 'bo sm') : ''}</div>
+      <div class="tiny muted" style="margin:8px 0 4px">To be ready</div>
+      ${ui.meter('Name recognition', rec / 100, true, `${rec}% of ~${need}%`)}
+      ${ui.meter('Money saved before declaring', Math.min(1, me.warChest / Math.max(1, o.cost * 0.4)), true, `${U.money(me.warChest)} of ~${U.money(o.cost * 0.4)}`)}<p class="tiny muted">A full race costs about ${U.money(o.cost)}; saving ~40% up front lets you raise the rest on the trail.</p>
+      ${ui.meter('Party standing (for the primary)', me.standing / 100, true, Math.round(me.standing))}
+      <p class="tiny muted" style="margin-top:4px">Raise recognition and money through community work (Life & Family → Life): networking, volunteering, party events and op-eds. Your war chest moves into the campaign when you declare.</p>`;
+  }
+
+  return { render, watchList, nextStep, oddsChip };
 })();

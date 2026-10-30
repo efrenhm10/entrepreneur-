@@ -35,9 +35,8 @@ GR.uiOffice = (function () {
       + ui.panel('Trends', trends(s, J));
     const col3 = ui.panel('On your desk', desk(s))
       + ui.panel('Advisers say', advisories(s).map(([txt, lbl, act, arg, urgent]) => `<div class="advice ${urgent ? 'urgent' : ''}"><span>${esc(txt)}</span>${lbl ? ui.btn(lbl, act, arg || '', 'bgr sm') : ''}</div>`).join('') || '<p class="muted small">All quiet.</p>')
-      + ui.panel('Races to watch', GR.uiCampaign.watchList(s, 4) + `<div class="row" style="margin-top:6px">${ui.btn('All races', 'tab', 'campaign', 'bgr sm')}</div>`)
-      + ui.panel('Latest cables', s.news.slice(0, 12).map((n) => `<p class="cable ${n.kind === 'gov' ? 'gov' : ''}"><small>${U.fmtDate(n.w)}</small>${esc(n.t)}</p>`).join('') + `<div class="row" style="margin-top:6px">${ui.btn('All news', 'gotab', 'news|headlines', 'bgr sm')}</div>`);
-    return `<div class="vhead"><h2>Situation Room</h2><span class="sub">${esc(G().briefingLabel(s))}</span></div><div class="grid3"><div>${col1}</div><div>${col2}</div><div>${col3}</div></div>`;
+      + ui.panel('Races to watch', GR.uiCampaign.watchList(s, 4) + `<div class="row" style="margin-top:6px">${ui.btn('All races', 'tab', 'campaign', 'bgr sm')}</div>`);
+    return `<div class="vhead"><h2>Situation Room</h2><span class="sub">${esc(G().briefingLabel(s))}</span></div>${newsStrip(s)}<div class="grid3"><div>${col1}</div><div>${col2}</div><div>${col3}</div></div>`;
   }
 
   function threats(s, seat, off) {
@@ -171,17 +170,27 @@ GR.uiOffice = (function () {
     return out.slice(0, 7);
   }
 
+  // Top-of-page news: unread messages first, then the latest headlines, so nothing important hides in a far tab.
+  function newsStrip(s) {
+    const msgs = s.inbox.filter((x) => !x.done).slice(0, 3);
+    const unread = s.inbox.filter((x) => !x.done).length;
+    const heads = s.news.slice(0, msgs.length ? 4 : 6);
+    const m = msgs.map((it) => `<button class="nline msg" data-act="openmsg" data-a="${it.id}"><span class="tag">Inbox</span><span class="t">${esc(it.title)}</span><small>${U.fmtDate(it.w)}</small></button>`).join('');
+    const h = heads.map((n) => `<div class="nline ${n.kind === 'gov' ? 'gov' : ''}"><span class="tag">${n.kind === 'gov' ? 'Gov' : 'News'}</span><span class="t">${esc(n.t)}</span><small>${U.fmtDate(n.w)}</small></div>`).join('');
+    return `<section class="newsstrip"><div class="nhead"><b>📰 Latest news</b>${unread ? `<span class="chip twarn">${unread} unread</span>` : ''}<span class="sp"></span>${unread ? ui.btn('Inbox', 'gotab', 'news|inbox', 'bo sm') : ''}${ui.btn('All news', 'gotab', 'news|headlines', 'bgr sm')}</div>${m + h || '<p class="muted small">Quiet week.</p>'}</section>`;
+  }
+
   function noOffice(s) {
     const me = s.pols.me;
     const job = GR.JOB[me.job];
     const J = s.jur.state;
-    return `<div class="vhead"><h2>Home</h2><span class="sub">${esc(s.home.cityName)}, ${s.home.state} ${s.home.zip}</span></div><div class="grid3">
+    return `<div class="vhead"><h2>Home</h2><span class="sub">${esc(s.home.cityName)}, ${s.home.state} ${s.home.zip}</span></div>${newsStrip(s)}<div class="grid3">
       <div>${ui.panel('Private citizen', `<div class="leader-card">${ui.facePol(s, me)}<div><b>${esc(me.fn + ' ' + me.ln)}</b> ${ui.chip(me.party)}<br><span class="small">${esc(job.name)} · age ${GR.life.age(s)}</span></div></div>
         ${ui.meter('Local name recognition', me.recLocal / 100, true, Math.round(me.recLocal) + '%')}${ui.meter('Party standing', me.standing / 100, true, Math.round(me.standing))}
         <p class="small">You do not hold office yet. Build name recognition and party connections, then declare for a race. Most careers start on the school board or city council, which hold elections in odd-numbered years.</p>
         <div class="row" style="margin-top:8px">${ui.btn('Find a race to run in', 'tab', 'campaign', 'bo')}${ui.btn('Community activities', 'gotab', 'profile|life', 'bgr')}</div>`)}</div>
-      <div>${ui.panel(`Key indicators · ${esc(J.name)}`, indicators(s, J))}${ui.panel('Crises & needs', crises(s, J))}</div>
-      <div>${ui.panel('Races to watch', GR.uiCampaign.watchList(s, 5) + `<div class="row" style="margin-top:6px">${ui.btn('All races', 'tab', 'campaign', 'bgr sm')}</div>`)}${ui.panel('Your resources', ui.kv([['Political points', U.num(me.pp)], ['War chest', U.money(me.warChest)], ['Savings', U.money(me.money)], ['Donor network', me.network + ' contacts']]))}${ui.panel('Latest cables', s.news.slice(0, 10).map((n) => `<p class="cable"><small>${U.fmtDate(n.w)}</small>${esc(n.t)}</p>`).join('') || '<p class="muted small">Quiet.</p>')}</div>
+      <div>${ui.panel('Your next step', GR.uiCampaign.nextStep(s))}${ui.panel(`What ${esc(J.name)} is dealing with`, crises(s, J))}${ui.panel(`Key indicators · ${esc(J.name)}`, indicators(s, J))}</div>
+      <div>${ui.panel('Races to watch', GR.uiCampaign.watchList(s, 5) + `<div class="row" style="margin-top:6px">${ui.btn('All races', 'tab', 'campaign', 'bgr sm')}</div>`)}${ui.panel('Your resources', ui.kv([['Political points', U.num(me.pp)], ['War chest', U.money(me.warChest)], ['Savings', U.money(me.money)], ['Donor network', me.network + ' contacts']]))}</div>
     </div>`;
   }
 

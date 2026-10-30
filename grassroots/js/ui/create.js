@@ -169,14 +169,14 @@ GR.uiCreate = (function () {
     return `<div class="cols">
       <div class="stepbox stack">
         <div class="subhead">Upbringing</div>
-        ${GR.UPBRINGING.map((u) => `<label class="row" style="align-items:flex-start;gap:6px"><input type="radio" name="up" ${f.upbringing === u.k ? 'checked' : ''} data-ch="cset2" data-a="upbringing|${u.k}"><span><b>${esc(u.name)}</b> <span class="small muted">· starts with ${U.money(u.money)}</span><br><span class="small">${esc(u.desc)}</span></span></label>`).join('')}
+        ${GR.UPBRINGING.map((u) => `<label class="row" style="align-items:flex-start;gap:6px;flex-wrap:nowrap"><input type="radio" name="up" ${f.upbringing === u.k ? 'checked' : ''} data-ch="cset2" data-a="upbringing|${u.k}"><span><b>${esc(u.name)}</b> <span class="small muted">· starts with ${U.money(u.money)}</span><br><span class="small">${esc(u.desc)}</span></span></label>`).join('')}
       </div>
       <div class="stepbox stack">
         <label class="f"><span>Education</span><select class="input" id="cedu" data-ch="cedu">${GR.EDUCATION.map((e) => `<option value="${e.k}" ${e.k === f.edu ? 'selected' : ''}>${esc(e.name)}${e.debt ? ' · ' + U.money(e.debt) + ' student debt' : ''}</option>`).join('')}</select></label>
         <label class="f"><span>Occupation</span><select class="input" id="cjob" data-ch="cset2" data-a="job">${jobs.map((j) => `<option value="${j.k}" ${j.k === f.job ? 'selected' : ''}>${esc(j.name)}${j.salary ? ' · ' + U.money(j.salary * 1000) + '/yr' : ''}</option>`).join('')}</select></label>
         <p class="small muted">Your job pays the bills and costs you about 18 hours of campaign time a week. Some jobs boost skills, name recognition or party connections.</p>
         <div class="subhead">Traits (choose 2) · ${f.traits.length}/2</div>
-        ${GR.world.TRAITS.map((t) => `<label class="row" style="gap:6px"><input type="checkbox" ${f.traits.includes(t.k) ? 'checked' : ''} ${!f.traits.includes(t.k) && f.traits.length >= 2 ? 'disabled' : ''} data-ch="ctrait" data-a="${t.k}"><span><b>${t.name}</b> <span class="small">${esc(t.desc)}</span></span></label>`).join('')}
+        ${GR.world.TRAITS.map((t) => `<label class="row" style="gap:6px;flex-wrap:nowrap"><input type="checkbox" ${f.traits.includes(t.k) ? 'checked' : ''} ${!f.traits.includes(t.k) && f.traits.length >= 2 ? 'disabled' : ''} data-ch="ctrait" data-a="${t.k}"><span><b>${t.name}</b> <span class="small">${esc(t.desc)}</span></span></label>`).join('')}
       </div></div>`;
   }
 
@@ -305,7 +305,9 @@ GR.uiCreate = (function () {
       const s = GR.state.newGame({ fn: f.fn.trim(), ln: f.ln.trim(), g: f.g, age: f.age, party: f.party, state: f.state, zip: f.zip, city: f.city, cityName: f.cityName, upbringing: f.upbringing, edu: f.edu, job: f.job, traits: f.traits, skills: f.skills, pos: f.pos, prefers: f.prefers, married: f.married, look: f.look });
       ui.s = s;
       ui.screen = 'game';
-      ui.tab = 'news';
+      ui.tab = 'office';
+      const wel = ui.s && ui.s.inbox.find((x) => /Welcome/.test(x.title));
+      if (wel) ui.modal = { kind: 'msg', id: wel.id };
       ui.sub = {};
       ui.form = {};
       ui.save();
