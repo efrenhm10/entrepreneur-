@@ -253,6 +253,9 @@ GR.comm = (function () {
     const terms = me.terms[BODY_OFF[bodyKey]] || 0;
     let x = t === 'A' ? -2.0 : t === 'B' ? -0.4 : 1.0;
     x += Math.min(4, terms) * 0.45;
+    // A leader you helped elect pushes for you; defying the whip costs you.
+    if (GR.lead && GR.lead.favor(s, 'committee') && t === 'A') x += 1.6;
+    x -= Math.min(3, s.whipNo || 0) * 0.3;
     x += ((me.respect || 20) - 30) / 25;
     x += (me.standing - 50) / 30;
     x += lead && !lead.isPlayer ? G().rel(s, lead.id) / 30 : 0.5;
@@ -450,13 +453,14 @@ GR.comm = (function () {
     if (!b || !['committee', 'markup'].includes(b.stage)) return false;
     return isMember(s, b.body, b.comm, 'me');
   }
-  const cloneBill = (b) => Object.assign({}, b, { prov: JSON.parse(JSON.stringify(b.prov)), an: b.an, _lean: null, _line: null, pledges: b.pledges, sweet: b.sweet, agreed: b.agreed });
+  const cloneBill = (b) => Object.assign({}, b, { prov: JSON.parse(JSON.stringify(b.prov)), an: b.an, _lean: null, _line: null, _reg: null, pledges: b.pledges, sweet: b.sweet, agreed: b.agreed });
   function earmarkSize(J) { return Math.round(GR.fisc.totals(J).spend * (J.k === 'nation' ? 0.000008 : 0.0003)); }
 
   // The menu of markup amendments for a bill.
   function markupOptions(s, b) {
     const J = s.jur[b.jur];
     const out = [];
+    if (b.prov.bud && GR.budget) return GR.budget.moveOptions(s, b);
     const ear = earmarkSize(J);
     out.push({ k: 'pork:me', group: 'Earmark', label: `${U.money(ear)} earmark for a project in your own district`, cost: 4 });
     // Earmarks to buy undecided committee members.
@@ -509,6 +513,7 @@ GR.comm = (function () {
     const J = s.jur[b.jur];
     const prov = b.prov;
     const [kind, a1, a2, a3] = key.split(':');
+    if (kind === 'bud' && prov.bud && GR.budget) { const moved = GR.budget.move(J, prov.bud, a1, a2, +a3); GR.budget.compile(J, prov); b._reg = null; const lf = GR.budget.lineOf(J, a1), lt = GR.budget.lineOf(J, a2); return moved ? `Moved ${U.money(moved)} from ${lf.name.toLowerCase()} to ${lt.name.toLowerCase()}` : null; }
     if (kind === 'pork') {
       const who = a1 === 'me' ? s.pols.me : s.pols[a1];
       if (!who) return null;
@@ -572,7 +577,8 @@ GR.comm = (function () {
     const b = L().findBill(s, billId);
     const me = s.pols.me;
     if (!canMarkup(s, b)) return { ok: false, msg: 'Only members of the committee holding the bill can offer amendments in markup.' };
-    const opt = markupOptions(s, b).find((o) => o.k === key);
+    // Budget moves can name any two lines.
+    const opt = markupOptions(s, b).find((o) => o.k === key) || (b && b.prov.bud && /^bud:[^:]+:[^:]+:\d+$/.test(key) ? { k: key, cost: 4 } : null);
     if (!opt) return { ok: false, msg: 'That amendment is no longer in order.' };
     if (s.hoursLeft < 2) return { ok: false, msg: 'Offering an amendment takes 2 hours.' };
     if (me.pp < opt.cost) return { ok: false, msg: `Costs ${opt.cost} political points.` };

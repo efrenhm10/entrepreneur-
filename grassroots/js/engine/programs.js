@@ -195,7 +195,7 @@ GR.prog = (function () {
     Object.keys(tgt).forEach((k) => { if (!J.F.crises[k]) delete tgt[k]; });
     return {
       k: spec.k || 'custom', name: spec.name || (base && base.name) || 'New Program', desc: spec.desc || (base && base.desc) || '', area, mech: spec.mech || (base && base.mech), ag: ag.k,
-      office: officeFor(J, area), amt, full, tgt, jobs: M.jobs * amt / 1e9, pot: ((base && base.pot) || 0) * Math.sqrt(amt / Math.max(1, full)),
+      office: officeFor(J, area), amt, full, tgt, jobs: M.jobs * amt / 1e9, jpb: M.jobs, pot: ((base && base.pot) || 0) * Math.sqrt(amt / Math.max(1, full)),
       lean: U.clamp(((base && base.lean) != null ? base.lean : M.lean), -1, 1), tilt: (base && base.tilt) || A.tilt, eff: ((base && base.eff) || 0) + (M.eff || 0),
       unit: (base && base.unit) || 'people served', cost: (base && base.cost) || 5000, bases: (base && base.bases) || {}, ind: (base && base.ind) || {}, repay: M.repay || 0,
     };
@@ -226,10 +226,11 @@ GR.prog = (function () {
   // Called from the crisis model: how much programs ease crisis k this quarter.
   function mitigation(F, k) { let m = 0; (F.programs || []).forEach((p) => { if (p.tgt[k]) m += p.tgt[k] * 0.06 * strength(F, p); }); return m; }
   function potBoost(F) { return Math.tanh(U.sum(F.programs || [], (p) => p.pot) * 4) / 4; }
-  function jobsK(F) { return U.sum(F.programs || [], (p) => p.jobs); }
+  function jobsK(F) { return U.sum(F.programs || [], (p) => (p.jpb != null ? p.jpb * (p.amt || 0) / 1e9 : p.jobs)); }
   function onApply(J, prov) {
     if (!prov.prog || !prov.prog.length) return;
-    J.F.programs = (J.F.programs || []).concat(prov.prog.map((p) => Object.assign({}, p)));
+    // Unfunded authorizations start at zero and wait for the budget.
+    J.F.programs = (J.F.programs || []).concat(prov.prog.map((p) => Object.assign({}, p, prov.approp ? { auth: p.amt, amt: 0, jobs: 0 } : {})));
   }
   // What each program delivered this year.
   function report(J) { return list(J).map((p) => ({ p, served: Math.round(p.amt / Math.max(1, p.cost)) })); }

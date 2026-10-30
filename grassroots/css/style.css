@@ -395,3 +395,5 @@ label.f > span { font-weight: 600; }
 .chip.tbad { background: rgba(255, 107, 97, .12); border-color: rgba(255, 107, 97, .5); color: var(--bad); }
 .chip.twarn { background: rgba(227, 179, 65, .14); border-color: rgba(227, 179, 65, .5); color: var(--warn); }
 .opp.openseat { border-left: 3px solid var(--good); }
+.geobar { display: inline-flex; width: 70px; height: 8px; border-radius: 4px; overflow: hidden; background: var(--panel-3); vertical-align: middle; }
+.geobar i { display: block; height: 100%; }

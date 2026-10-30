@@ -568,6 +568,8 @@ GR.fisc = (function () {
     if (F.lvl === 'nation') F.debt = Math.max(0, F.debt - t2.bal / 4);
     else {
       F.reserve += t2.bal / 4;
+      // Rainy-day funds are capped by law; overflow pays down debt.
+      if (F.lvl !== 'nation' && F.reserve > t2.spend * 0.2) { const over = F.reserve - t2.spend * 0.2; F.reserve -= over; F.debt = Math.max(0, F.debt - over); }
       F.debt = Math.max(0, F.debt + (t2.bond - t2.principal) / 4);
       // Running out of reserves forces deficit borrowing, which rating agencies punish.
       if (F.reserve < 0) { F.debt += -F.reserve; F.reserve = 0; F.forcedBorrow = (F.forcedBorrow || 0) + 1; }
@@ -613,7 +615,8 @@ GR.fisc = (function () {
     const p = bill.prov || {};
     Object.entries(p.tax || {}).forEach(([k, d]) => { if (F.tax[k] != null) F.tax[k] = U.clamp(U.round(F.tax[k] + d, 2), TAXES[k].min, TAXES[k].max); });
     Object.entries(p.reg || {}).forEach(([k, d]) => { F.reg[k] = U.clamp((F.reg[k] || 0) + d, -2, 15); });
-    Object.entries(p.ap || {}).forEach(([k, v]) => {
+    // "Subject to appropriation": authorized, but no money moves until a budget funds it.
+    Object.entries(p.approp ? {} : p.ap || {}).forEach(([k, v]) => {
       const a = F.ag.find((x) => x.k === k);
       if (!a) return;
       a.opex = Math.max(0, a.opex + (v.opex || 0));

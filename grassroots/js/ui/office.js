@@ -135,7 +135,9 @@ GR.uiOffice = (function () {
     const mine = (J.bills || []).filter((b) => b.spon === 'me' && L.OPEN(b));
     if (s.steer && !s.steer.done && s.steer.body === bk) out.push([`Steering is handing out committee seats (meets ${U.fmtDate(s.steer.due)}). Put up capital and favors for the panels you want.`, 'Committees', 'tab', 'committees', true]);
     const due = s.budgetDue && s.budgetDue[jur];
-    if (due && off.exec) out.push([`Your FY${due.fy} budget is due ${U.fmtDate(due.due)}.`, 'Bill Builder', 'tab', 'builder', true]);
+    if (due && off.exec) out.push([`Your FY${due.fy} budget is due ${U.fmtDate(due.due)}. By law it must balance.`, 'Budget Room', 'tab', GR.budget && GR.budget.has(jur) ? 'budget' : 'builder', true]);
+    const liveBud = (J.bills || []).find((b) => b.kind === 'budget' && GR.legis.OPEN(b) && b.prov.bud);
+    if (liveBud && !off.exec) { const reg = GR.budget.regional(J, liveBud.prov.bud); const g = GR.budget.geoOf(s, me, jur); const i = g.indexOf(Math.max(...g)); out.push([`The ${liveBud.title} is moving. Districts like yours: ${(reg[i] * 100).toFixed(1)}% against current services.`, 'Budget Room', 'tab', 'budget', reg[i] < -0.01]); }
     mine.filter((b) => b.blockedBy).slice(0, 2).forEach((b) => out.push([`The ${b.title} is bottled up in committee by ${W().fullName(s.pols[b.blockedBy])}.`, 'Open', 'legsel', b.id, true]));
     mine.filter((b) => b.vetoThreat).slice(0, 2).forEach((b) => out.push([`The ${GR.xneg.exTitle(s, b.jur).toLowerCase()} threatens to veto your ${b.title}.`, 'Negotiate', 'gotab', 'nego|exec', true]));
     mine.filter((b) => b.xcounter).slice(0, 2).forEach((b) => out.push([`The ${GR.xneg.exTitle(s, b.jur).toLowerCase()}'s staff sent counteroffers on the ${b.title}.`, 'See offers', 'gotab', 'nego|exec']));
@@ -256,16 +258,32 @@ GR.uiOffice = (function () {
       <p>Leadership races are decided by your colleagues, and they vote for people they like and respect. Seniority unlocks each rung: Assistant Whip, then Whip, then Leader, then Speaker. Races open after the November election and are decided when the chamber organizes in January.</p>
       ${!open ? '<div class="note">The leadership election window is closed. It opens after the next general election for this chamber.</div>' : ''}
       ${count}
-      ${ui.table(['Post', 'Held by', 'Party', ''], posts.map((p) => {
+      ${races(s, bk)}
+      ${me.lead && me.lead.body === bk ? `<div class="box"><div class="band">Your post: ${esc(GR.LEADERSHIP[bk].find((x) => x.k === me.lead.post).name)}</div><div class="boxpad stack-s"><p class="small">${esc((GR.lead && GR.lead.POWERS[me.lead.post]) || '')}</p><div class="row">${ui.btn('Call a caucus meeting (3h)', 'leadcaucus', '', 'bb sm', s.hoursLeft < 3)}<span class="tiny muted">Whip operations are on each bill in the Legislature screen.</span></div></div></div>` : ''}
+      ${ui.table(['Post', 'Held by', 'Party', 'What it does', ''], posts.map((p) => {
         const c = G().canSeek(s, bk, p.k);
         const mine = p.holder && p.holder.isPlayer;
-        return `<tr class="${mine ? 'me' : ''}"><td>${esc(p.name)}</td><td>${p.holder ? (mine ? '<b>You</b>' : ui.plink(s, p.holder.id)) : '<span class="muted">Vacant</span>'}</td><td>${p.party ? ui.chip(p.party) : 'Any'}</td><td>${mine ? '' : bid && bid.post === p.k ? '<b>Running</b>' : c.ok ? ui.btn(`Run (${c.cost} pts)`, 'seek', p.k, 'bb sm', !!bid) : `<span class="small muted">${esc(c.why)}</span>`}</td></tr>`;
+        return `<tr class="${mine ? 'me' : ''}"><td>${esc(p.name)}</td><td>${p.holder ? (mine ? '<b>You</b>' : ui.plink(s, p.holder.id)) : '<span class="muted">Vacant</span>'}</td><td>${p.party ? ui.chip(p.party) : 'Any'}</td><td class="tiny muted" style="max-width:280px">${esc((GR.lead && GR.lead.POWERS[p.k]) || '')}</td><td>${mine ? '' : bid && bid.post === p.k ? '<b>Running</b>' : c.ok ? ui.btn(`Run (${c.cost} pts)`, 'seek', p.k, 'bb sm', !!bid) : `<span class="small muted">${esc(c.why)}</span>`}</td></tr>`;
       }))}
       <div class="band">Your standing in the caucus</div>
       ${ui.mrow('Respect', me.respect || 0, 'green', Math.round(me.respect || 0))}${ui.mrow('Party standing', me.standing, 'grey', Math.round(me.standing))}
       ${G().isFed(bk) ? ui.mrow('Caucus goodwill (other states)', 50 + ((s.fedRel || {})[bk] || 0), '', Math.round((s.fedRel || {})[bk] || 0)) : ''}
       <p class="small muted">Terms served here: ${me.terms[G().BODY_OFF[bk]] || 0}.</p>
     </div>`;
+  }
+
+  // This winter's contested leadership races in your caucus.
+  function races(s, bk) {
+    const R = s.leadRaces && s.leadRaces[bk];
+    const me = s.pols.me;
+    if (!R || R.done || !GR.lead) return '';
+    const mine = R.races.filter((r) => r.party === me.party);
+    if (!mine.length) return '';
+    return `<div class="box"><div class="band">Leadership races: the caucus votes in January</div><div class="boxpad stack-s">${mine.map((r) => {
+      const t = GR.lead.tally(s, bk, r);
+      return `<div class="opp"><span class="t"><b class="small">${esc(GR.lead.postName(bk, r.post))}</b>${r.challenge ? ' <span class="chip twarn">challenge</span>' : ' <span class="chip tgood">open seat</span>'}<br>${r.cands.map((id) => `${ui.plink(s, id)} <span class="tiny muted">${t[id] || 0} votes${r.offers[id] ? ` · offers ${esc(GR.lead.OFFERS[r.offers[id]](bk))}` : ''}</span>${r.pledge === id ? ' <b class="tiny good">your pledge</b>' : ''}`).join('<br>')}</span>
+        ${r.pledge ? ui.btn('Work the caucus for them (2h)', 'leadwhipfor', r.post, 'bgr sm', s.hoursLeft < 2) : r.cands.map((id) => ui.btn(`Back ${esc(s.pols[id].ln)}`, 'leadpledge', `${r.post}|${id}`, 'bgr sm')).join('')}</div>`;
+    }).join('')}<p class="tiny muted">Winners reward the members who stood with them, and remember the ones who didn't. Projected tallies shift as candidates and their backers work the caucus.</p></div></div>`;
   }
 
   function colleagues(s, bk) {
@@ -315,6 +333,9 @@ GR.uiOffice = (function () {
   A('reqcomm', (el, a) => ui.res(G().requestCommittee(ui.s, a)));
   A('colsort', (el, a) => { ui.sel.colSort = a; });
   A('donate', (el, a) => { const [p, amt] = a.split('|'); ui.res(G().donate(ui.s, p, +amt)); });
+  A('leadpledge', (el, a) => { const [post, id] = a.split('|'); GR.scenes.RUN.leadPledge(ui.s, { bk: G().myBody(ui.s), post, id }); ui.toast(`You told ${GR.world.fullName(ui.s.pols[id])} they have your vote.`); ui.save(); });
+  A('leadwhipfor', (el, a) => { ui.res(GR.lead.whipFor(ui.s, G().myBody(ui.s), a)); ui.save(); });
+  A('leadcaucus', () => { ui.res(GR.lead.caucusMeeting(ui.s)); ui.save(); });
   A('eo', (el, a) => { const [k, to] = a.split('|'); ui.res(G().execOrder(ui.s, k, +to)); });
 
   return { render, noOffice, overview, schedule, leadership, colleagues, execOrders };

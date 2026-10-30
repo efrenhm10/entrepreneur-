@@ -255,6 +255,8 @@ GR.uiLegis = (function () {
     if (mine && ['committee', 'markup'].includes(b.stage) && b.body !== 'ussenate' && bk === b.body) btns.push(ui.btn('Discharge petition', 'discharge', b.id, 'bgr sm'));
     if (!mine && b.spon && !b.cos.includes('me') && bk && b.stage === 'committee') btns.push(ui.btn('Co-sponsor', 'cosp', b.id, 'bgr sm'));
     if (mine) btns.push(ui.btn('All negotiations', 'gonego', b.id, 'bgr sm'));
+    // Leaders and whips can lock in their party's wavering members.
+    if (me.lead && me.lead.body === b.body && /whip|leader|speaker|protem|president|asst/.test(me.lead.post) && L().partyLine(s, b, me.party) > 0) btns.push(ui.btn('Whip operation (4h)', 'leadwhipop', b.id, 'bb sm', s.hoursLeft < 4));
     btns.push(ui.btn('Full analysis', 'billview', b.id, 'bgr sm'));
     out.push(`<div class="row" style="margin-top:6px">${btns.join('')}</div>`);
     if (!mine) out.push('<p class="tiny muted" style="margin-top:4px">Only a bill\'s sponsor can trade for votes on it. Co-sponsor it to put your name on it, or amend it in markup if you sit on the committee.</p>');
@@ -323,6 +325,7 @@ GR.uiLegis = (function () {
   const A = (n, fn) => ui.on(n, fn);
   A('legsel', (el, a) => { ui.sel.leg = a; ui.tab = 'legis'; ui.modal = null; const b = L().findBill(ui.s, a); if (b && !L().OPEN(b)) ui.sel.legf = 'done'; else if (b && ui.sel.legf === 'done') ui.sel.legf = 'all'; window.scrollTo(0, 0); });
   A('legf', (el, a) => { ui.sel.legf = a; ui.sel.leg = null; });
+  A('leadwhipop', (el, a) => { ui.res(GR.lead.whipOp(ui.s, a)); ui.save(); });
   A('xask', (el, a) => { ui.res(X().askSign(ui.s, a)); ui.save(); });
   A('xaccept', (el, a) => { const [id, k] = a.split('|'); ui.res(X().acceptCounter(ui.s, id, k)); ui.save(); });
   A('xproject', () => { ui.res(X().askProject(ui.s)); ui.save(); });

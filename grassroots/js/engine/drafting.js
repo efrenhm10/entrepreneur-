@@ -245,7 +245,9 @@ GR.drafting = (function () {
     const J = s.jur[jur];
     const F = J.F;
     if (!(cost > 0)) return [];
-    const out = [{ k: 'none', name: J.k === 'nation' ? 'Deficit-financed' : 'Draw on reserves and borrowing', desc: J.k === 'nation' ? 'Adds to the debt. Fiscal hawks object.' : 'No offset. Hurts the balance and possibly the credit rating.' }];
+    // Congress can borrow. States and cities must balance: no offset means waiting for the budget.
+    const out = [J.k === 'nation' ? { k: 'none', name: 'Deficit-financed', desc: 'Adds to the debt. Fiscal hawks object.' }
+      : { k: 'approp', name: 'Subject to appropriation', desc: 'Authorizes it now; not a dollar flows until you win the money in a budget, where it competes with every other line. The usual path, and the easiest to pass.' }];
     FX().LEVEL_TAXES[J.k].filter((k) => F.tax[k] != null && !(a && a.kind === 'tax' && a.tax === k)).forEach((k) => {
       const per = perPoint(J, k);
       if (!per) return;
@@ -266,6 +268,7 @@ GR.drafting = (function () {
     return [head].concat(out);
   }
   function applyPay(s, J, prov, cost, pay, a) {
+    if (pay === 'approp' && cost > 0) { prov.approp = true; return null; }
     if (!pay || pay === 'none' || !(cost > 0)) return '';
     const F = J.F;
     if (pay.startsWith('tax:')) {
@@ -322,7 +325,8 @@ GR.drafting = (function () {
     if (R.mine) { const me = s.pols.me; prov.ear.push({ who: 'me', ag: earAg.k, amt: earAmt, proj: L().earmarkName(s, me, earAg) }); sections.push(['COMMUNITY PROJECT', `${U.money(earAmt)} is directed to the ${prov.ear[prov.ear.length - 1].proj} in the sponsor's district.`]); }
     const cost = staticCost(s, J, prov);
     const payText = applyPay(s, J, prov, cost, d.pay, a);
-    if (payText) sections.push(['OFFSET', payText]);
+    if (payText === null) sections.push(['SUBJECT TO APPROPRIATION', `No funds are appropriated by this Act. The ${U.money(cost)} a year it authorizes may be spent only as provided in a future appropriations act.`]);
+    else if (payText) sections.push(['OFFSET', payText]);
     else if (cost > 0) sections.push(['FINANCING', J.k === 'nation' ? 'Costs under this Act are not offset.' : 'Costs under this Act are paid from reserves and bond proceeds.']);
     sections.push(['EFFECTIVE DATE', `This Act takes effect at the start of fiscal year ${L().fiscalYear(s, jur) + 1}${a.kind === 'law' ? ', except that changes in law take effect on enactment' : ''}.`]);
     const net = staticCost(s, J, prov);

@@ -36,7 +36,7 @@ GR.uiDraft = (function () {
     const tabs = [['idea', '✍️ Your own idea'], ['problem', '📋 Start from a problem'], ['advanced', 'Line-item editor (advanced)']];
     const cur = ui.cur('builder', tabs);
     const due = s.budgetDue && s.budgetDue[jur];
-    const budgetNote = due ? `<div class="note" style="margin-bottom:10px"><b>Your FY${due.fy} budget is due ${U.fmtDate(due.due)}.</b> Budgets are written line by line: open the line-item editor and choose "FY${due.fy} budget". ${ui.btn('Open the budget', 'sub', 'builder|advanced', 'bb sm')}</div>` : '';
+    const budgetNote = due ? `<div class="note" style="margin-bottom:10px"><b>Your FY${due.fy} budget is due ${U.fmtDate(due.due)}.</b> ${GR.budget && GR.budget.has(jur) ? `Budgets are written in the Budget Room, line by line, and must balance. ${ui.btn('Open the Budget Room', 'tab', 'budget', 'bb sm')}` : `Budgets are written line by line: open the line-item editor and choose "FY${due.fy} budget". ${ui.btn('Open the budget', 'sub', 'builder|advanced', 'bb sm')}`}</div>` : '';
     if (cur === 'advanced') return head(s) + ui.tabs('builder', tabs) + `<div class="sheet">${GR.uiGov.constructor(s)}</div>`;
     const d = draft(s);
     const left = cur === 'idea' ? ideaSteps(s, d) : problemSteps(s, d);

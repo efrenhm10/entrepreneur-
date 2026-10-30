@@ -252,6 +252,8 @@ GR.gov = (function () {
       if (me.lead && me.lead.body === bodyKey) x -= GR.legis.rebellion(s, v, J, GR.legis.ctxOf(s, v)) * 1.2;
       x -= rival ? ((rival.infl || 30) - 40) / 45 + (rival.lead ? 0.6 : 0) + (v.ties || 0) * 0 : -2;
       if (me.traits.includes('loyal')) x += 0.25;
+      // Colleagues whose price you paid.
+      if (s.leadBid && s.leadBid.bought && s.leadBid.bought[v.id]) x += 2;
       if (me.traits.includes('maverick')) x -= 0.3;
       return { id: v.id, x, lean: x > 0.5 ? 'You' : x > 0 ? 'Leans you' : x > -0.5 ? 'Leans rival' : 'Rival' };
     });
@@ -285,6 +287,8 @@ GR.gov = (function () {
         if (p && p.lead && p.lead.post === post.k) p.lead = null;
       }
     });
+    // Contested races decided by the caucus (the player's own bid is handled below).
+    if (GR.lead) GR.lead.resolve(s, bodyKey);
     // Player's bid.
     if (s.leadBid && s.leadBid.body === bodyKey) {
       const bid = s.leadBid;

@@ -32,7 +32,8 @@ GR.uiGame = (function () {
       if (hasLeg) out.push(['legis', '📜', 'Legislature', tasks]);
       if (bk) out.push(['committees', '⚖️', 'Committees', s.steer && !s.steer.done && s.steer.body === bk ? '!' : '']);
       if (hasLeg) out.push(['nego', '🤝', off.exec ? 'Legislative Affairs' : 'Negotiations', xAlerts(s)]);
-      out.push(['builder', '✍️', 'Bill Builder', s.budgetDue && s.budgetDue[off.jur] && off.exec ? '!' : ''], ['budget', '💰', 'Budget'], ['economy', '📈', 'Economy']);
+      const budLive = (s.jur[off.jur].bills || []).some((b) => b.kind === 'budget' && GR.legis.OPEN(b));
+      out.push(['builder', '✍️', 'Bill Builder'], ['budget', '💰', 'Budget', (s.budgetDue && s.budgetDue[off.jur] && off.exec) ? '!' : budLive && GR.budget && GR.budget.has(off.jur) ? '●' : ''], ['economy', '📈', 'Economy']);
       out.push(['power', '🧭', 'Power']);
       if (seat.off !== 'school') out.push(['cabinet', '👔', off.exec ? 'Cabinet' : 'Staff']);
       if (off.jur !== 'school') out.push(['develop', '🏗️', 'Development']);
@@ -57,7 +58,7 @@ GR.uiGame = (function () {
       case 'committees': return need(() => head('Committees', bk ? GR.BODIES[bk].name : '') + sheet(V.committees(s)));
       case 'nego': return need(() => LG.nego(s));
       case 'builder': return need(() => GR.uiDraft.render(s));
-      case 'budget': return need(() => head('Budget', s.jur[G().myJur(s)].name) + sheet(V.budgetView(s)));
+      case 'budget': return need(() => GR.uiBudget.render(s));
       case 'economy': {
         const tabs = [['brief', 'Four-part briefing'], ['econ', 'Economy'], ['district', 'District dossier']];
         const cur = ui.cur('economy', tabs);

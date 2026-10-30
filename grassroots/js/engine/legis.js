@@ -247,6 +247,8 @@ GR.legis = (function () {
       const id = GR.elect.ideal(pr, 'I', pol) * 0.5 + GR.elect.ideal(pr, p.party, pol) * 0.5;
       di += (Math.abs(id - GR.optScore(pol, J.law[x.k], lvl)) - Math.abs(id - GR.optScore(pol, x.to, lvl))) * 0.35;
     });
+    // Budgets: how the member's region fares against current services.
+    if (prov.bud && GR.budget) di += GR.budget.memberScore(s, p, b) * 2;
     di = Math.tanh(di);
     // 3. Agency efficiency / audit ratings and fiscal soundness.
     let effN = 0, effD = 0;
@@ -433,7 +435,7 @@ GR.legis = (function () {
       b.stage = 'markup';
       b.markupW = s.week;
       b.due = s.week + 1;
-      GR.comm.chairsMark(s, b);
+      if (b.prov.bud && GR.budget) { if (chair && !chair.isPlayer) GR.budget.chairMark(s, b, chair); if (GR.budget.caucusCheck) GR.budget.caucusCheck(s, b); } else GR.comm.chairsMark(s, b);
       if (GR.comm.isMember(s, b.body, b.comm, 'me')) {
         if (b.spon === 'me' || (chair && chair.isPlayer)) b.my['cv' + b.body] = 'y';
         else b.task = 'cvote';
@@ -483,6 +485,7 @@ GR.legis = (function () {
       const need = needed(s, b, b.body, 'floor');
       record(s, b, b.body, r, 'floor', need);
       b.task = null;
+      if (r.y < need && b.prov.bud && GR.budget && (b.reworks || 0) < 5) { GR.budget.rework(s, b, r); b.due = s.week + 1; if (G().myBody(s) === b.body) { delete b.my[b.body]; b.task = 'vote'; } return; }
       if (r.y < need) { kill(s, b, `failed in the ${GR.BODIES[b.body].name}, ${r.y}-${r.n}`); return; }
       if (GR.xneg) GR.xneg.afterChamber(s, b);
       const bs = G().bodiesOf(s, b.jur);
@@ -498,8 +501,12 @@ GR.legis = (function () {
       const ex = G().execOf(s, b.jur);
       let sign;
       if (!ex) sign = true;
-      else if (ex.isPlayer) { if (!b.my.sign) { b.my.sign = 'y'; } sign = b.my.sign === 'y'; }
-      else if (GR.xneg) sign = GR.xneg.decide(s, b, ex);
+      else if (ex.isPlayer) { if (!b.my.sign) { b.my.sign = 'y'; } sign = b.my.sign === 'y'; if (sign && b.prov.bud && b.my.itemVeto && b.my.itemVeto.length && GR.budget) GR.budget.applyItemVetoes(s, b, b.my.itemVeto); }
+      else if (GR.xneg) {
+        // Governors with a line-item veto strike lines the legislature raised.
+        if (b.prov.bud && GR.budget && ex && !ex.isPlayer) { const keys = GR.budget.aiItemVeto(s, b, ex); if (keys.length) { const saved = GR.budget.applyItemVetoes(s, b, keys); GR.sim.news(s, `${W().fullName(ex)} line-item vetoed ${keys.length} budget item${keys.length === 1 ? '' : 's'} (${U.money(saved)}): ${b.itemVetoes.slice(0, 3).join(', ')}.`, 'gov'); } }
+        sign = GR.xneg.decide(s, b, ex);
+      }
       else { const c = components(s, ex, b); sign = c.score > -0.06 || b.kind === 'cr' || (b.kind === 'budget' && c.score > -0.15); }
       b.task = null;
       if (sign) { enact(s, J, b); return; }
@@ -536,6 +543,8 @@ GR.legis = (function () {
 
   function enact(s, J, b) {
     if (b.dev && GR.develop) GR.develop.onEnact(s, b);
+    // Spending "subject to appropriation" waits for the budget.
+    if (b.prov.approp && GR.budget && GR.budget.has(b.jur)) GR.budget.addRequest(s, s.jur[b.jur], b);
     b.stage = 'law'; b.done = s.week;
     FX().apply(J, b);
     (b.prov.prog || []).forEach((x) => { const p = (J.F.programs || []).slice().reverse().find((q) => q.name === x.name && !q.since); if (p) { p.since = s.week; p.spon = b.spon; p.law = b.title; } });
@@ -543,6 +552,7 @@ GR.legis = (function () {
     J.laws.unshift({ w: s.week, t: `${b.title}${b.sum ? ': ' + b.sum : ''}`, spon: b.spon });
     if (J.laws.length > 80) J.laws.pop();
     GR.sim.news(s, `${J.name}: the ${b.title} is now law.`, 'gov');
+    if (b.prov.bud && GR.budget) GR.budget.onEnact(s, J, b);
     if (b.kind === 'budget' || b.kind === 'cr') { J.fy = J.fy || {}; J.fy.passed = fiscalYear(s, J.k); J.F.shutdown = 0; if (J.fy.shutdownSince) { GR.sim.news(s, `The ${J.name} government shutdown is over after ${s.week - J.fy.shutdownSince} weeks.`, 'gov'); J.fy.shutdownSince = null; } }
     if (b.kind === 'reconciliation') { s.recon = s.recon || {}; s.recon[fiscalYear(s, 'nation')] = true; }
     if (b.spon === 'me' && GR.power) (b.prov.prog || []).forEach((x) => Object.entries(x.bases || {}).forEach(([k, v]) => GR.power.shift(s, k, v)));
@@ -564,10 +574,17 @@ GR.legis = (function () {
     if (sp && b.spon !== 'me') G().addRel(s, b.spon, v === 'y' ? 6 : v === 'n' ? -6 : -1);
     (s.deals || []).forEach((d) => {
       if (d.bill !== b.id) return;
+      // A promise to the whip can be a promise to vote no.
+      if (d.whip != null) { if ((d.whip > 0) === (v === 'y') && v !== 'a') { d.kept = true; G().addRel(s, d.who, 6); } else { d.broken = true; G().addRel(s, d.who, -30); G().addRespect(s, -5); s.whipNo = (s.whipNo || 0) + 2; GR.sim.msgInbox(s, 'You crossed the whip', `You told ${W().fullName(s.pols[d.who])} you'd vote with the caucus on the ${b.title}, then didn't. Leadership will remember at steering time.`); } return; }
       if (v === 'y') { d.kept = true; G().addRel(s, d.who, 8); G().addRespect(s, 1); }
       else { d.broken = true; G().addRel(s, d.who, -40); G().addRespect(s, -8); GR.sim.msgInbox(s, 'You broke a deal', `${W().fullName(s.pols[d.who])} is furious that you went back on your word. Word gets around the caucus.`); }
     });
     const me = s.pols.me;
+    // You told your regional caucus you'd hold out on this budget.
+    if (b.my.hold != null && v === 'y' && b.prov.bud && GR.budget) {
+      const reg = GR.budget.regional(s.jur[b.jur], b.prov.bud)[b.my.hold];
+      if (reg < -0.006) { s.caucusRel = s.caucusRel || {}; s.caucusRel[b.my.hold] = (s.caucusRel[b.my.hold] || 0) - 25; G().addRespect(s, -3); if (GR.power) GR.power.shift(s, 'local', -6); GR.sim.msgInbox(s, 'Your caucus feels betrayed', `You promised the ${GR.budget.REGIONS[b.jur][b.my.hold][1]} Caucus you would hold out, then voted for the ${b.title} while their districts were still short. They will remember when you need them.`); }
+    }
     const line = partyLine(s, b, me.party);
     if (line) {
       const withParty = (line > 0) === (v === 'y');
@@ -654,7 +671,12 @@ GR.legis = (function () {
       if ((s.recon || {})[fiscalYear(s, 'nation')]) return 'Congress has already used reconciliation this fiscal year.';
     }
     if (!G().bodiesOf(s, b.jur).length) return 'There is no legislature at this level.';
-    void J;
+    // States and cities must balance: new costs need an offset, or wait for the budget.
+    if ((J.k === 'state' || J.k === 'city') && b.kind === 'regular' && !p.approp) {
+      const cost = GR.drafting ? GR.drafting.staticCost(s, J, p) : 0;
+      if (cost > FX().totals(J).spend * 0.0002) return `Balanced-budget requirement: this bill adds ${U.money(cost)} a year with no way to pay for it. Add an offset, or make it subject to appropriation.`;
+    }
+    if (b.kind === 'budget' && p.bud && GR.budget) { const bal = GR.budget.balance(J, p.bud); if (bal.gap < -FX().totals(J).spend * 0.001) return `The budget is ${U.money(-bal.gap)} out of balance. Cut, raise revenue or draw reserves before submitting.`; }
     return null;
   }
 
@@ -674,6 +696,9 @@ GR.legis = (function () {
     if (GR.OFFICES[seat.off].exec) b.agenda = true;
     b.sum = describe(s, b).slice(0, 3).join('; ');
     analysis(s, b);
+    // A leader who owes you puts their weight behind this bill.
+    const fav = GR.lead && GR.lead.favor(s, 'bill');
+    if (fav) { b.leaderPush = b.body; const cm = s.bodies[b.body] && s.bodies[b.body].comm[b.comm]; if (cm && cm.chair) b.agreed[cm.chair] = true; GR.lead.useFavor(s); GR.sim.msgInbox(s, 'A favor repaid', `${W().fullName(s.pols[fav.who])} is putting leadership's weight behind your ${b.title}: the chair will hear it and it will get floor time.`); }
     (s.jur[jur].bills || (s.jur[jur].bills = [])).push(b);
     s.stats.billsWritten++;
     me.sk.policy = U.clamp(me.sk.policy + (U.chance(0.4) ? 1 : 0), 0, 99);
@@ -915,7 +940,9 @@ GR.legis = (function () {
     const recon = jur === 'nation' && U.chance(0.12) && !d.prov.policy.length && !Object.keys(d.prov.reg).length && !Object.keys(d.prov.prem).length && !(s.recon || {})[fiscalYear(s, 'nation')];
     const b = newBill(s, jur, { title: d.title, prov: d.prov, spon: d.spon.id, kind: recon ? 'reconciliation' : 'regular', body: d.body, due: s.week + U.randInt(1, 3), fac: d.fac, tool: d.tool, crisis: d.crisis });
     b.comm = committeeFor(s, b);
-    b.sum = describe(s, b).slice(0, 3).join('; ');
+    // Balanced-budget law: unfunded spending becomes an authorization that waits for the budget.
+    if ((jur === 'state' || jur === 'city') && GR.drafting && GR.drafting.staticCost(s, s.jur[jur], b.prov) > FX().totals(s.jur[jur]).spend * 0.0002) b.prov.approp = true;
+    b.sum = describe(s, b).slice(0, 3).join('; ') + (b.prov.approp ? ' (subject to appropriation)' : '');
     return b;
   }
 
@@ -963,11 +990,12 @@ GR.legis = (function () {
         if (ex && ex.isPlayer) {
           s.budgetDue = s.budgetDue || {};
           s.budgetDue[jur] = { due: s.week + 4, fy };
-          GR.sim.msgInbox(s, `Submit your FY${fy} budget`, `Your FY${fy} budget for ${J.name} is due in 4 weeks. Open Office → Bill Constructor and choose "Annual budget" to set every agency's operating and capital lines, tax rates and program parameters.`);
-        } else J.bills.push(budgetBill(s, jur, fy, ex));
+          GR.sim.msgInbox(s, `Submit your FY${fy} budget`, `Your FY${fy} budget for ${J.name} is due in 4 weeks. ${GR.budget && GR.budget.has(jur) ? 'Open the Budget screen: start from current services, then cut, add, raise revenue or draw reserves. By law it must balance, and every region will judge what it gets.' : 'Open the Bill Builder\'s line-item editor and choose the annual budget to set every agency\'s operating and capital lines, tax rates and program parameters.'}`);
+        } else if (GR.budget && GR.budget.has(jur)) J.bills.push(GR.budget.makeBill(s, jur, fy, ex, GR.budget.propose(s, J, ex)));
+        else J.bills.push(budgetBill(s, jur, fy, ex));
       }
       // Missed deadline: staff submit a current-services budget.
-      if (s.budgetDue && s.budgetDue[jur] && s.week >= s.budgetDue[jur].due) { const fy2 = s.budgetDue[jur].fy; delete s.budgetDue[jur]; J.bills.push(budgetBill(s, jur, fy2, s.pols.me, true)); }
+      if (s.budgetDue && s.budgetDue[jur] && s.week >= s.budgetDue[jur].due) { const fy2 = s.budgetDue[jur].fy; delete s.budgetDue[jur]; J.bills.push(GR.budget && GR.budget.has(jur) ? GR.budget.makeBill(s, jur, fy2, s.pols.me, GR.budget.propose(s, J, s.pols.me)) : budgetBill(s, jur, fy2, s.pols.me, true)); }
       // Fiscal year begins without a budget.
       const start = fyStartWeek(s, jur, y);
       if (s.week === start && J.fy.passed !== fy && J.fy.passed !== y + 1) {
@@ -1029,7 +1057,14 @@ GR.legis = (function () {
     const jur = G().myJur(s);
     const due = s.budgetDue && s.budgetDue[jur];
     if (!due) return { ok: false, msg: 'No budget is due right now.' };
-    const b = newBill(s, jur, { title: draft.title || `FY${due.fy} Budget`, prov: JSON.parse(JSON.stringify(draft.prov)), spon: 'me', kind: 'budget', due: s.week + 2 });
+    let b;
+    if (draft.bud && GR.budget && GR.budget.has(jur)) {
+      const J = s.jur[jur];
+      const bal = GR.budget.balance(J, draft.bud);
+      if (bal.gap < -FX().totals(J).spend * 0.001) return { ok: false, msg: `Your budget is ${U.money(-bal.gap)} out of balance. The law requires it to balance.` };
+      b = GR.budget.makeBill(s, jur, due.fy, s.pols.me, JSON.parse(JSON.stringify(draft.bud)));
+      b.due = s.week + 2;
+    } else b = newBill(s, jur, { title: draft.title || `FY${due.fy} Budget`, prov: JSON.parse(JSON.stringify(draft.prov)), spon: 'me', kind: 'budget', due: s.week + 2 });
     b.fy = due.fy;
     b.agenda = true;
     b.sum = describe(s, b).slice(0, 3).join('; ');
