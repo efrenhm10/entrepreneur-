@@ -168,7 +168,8 @@ GR.budget = (function () {
     const drift = { k12_formula: 0.01, mcd_core: 0.03, corr_prison: 0.01, hs_child: 0.01, c_patrol: 0.01, c_fire: 0.01, c_homeless: 0.02 };
     Object.entries(cur).forEach(([k, v]) => { cs[k] = v * (1 + infl + (drift[k] || 0.004)); });
     const drawMax = Math.max(0, F.reserve * 0.35);
-    return { rev, mand, cur, cs, infl, g, drawMax, reserve: F.reserve };
+    // Each dollar of debt retired saves interest and the yearly principal payment from then on.
+    return { rev, mand, cur, cs, infl, g, drawMax, reserve: F.reserve, debt: F.debt, svc: F.mac.effRate / 100 + 0.05 };
   }
   // Cash cost of a set of lines: capital is 40% bond-financed.
   function cash(J, amt) { return U.sum(lines(J), (l) => (amt[l.k] || 0) * (l.part === 'capex' ? 0.6 : 1)); }
@@ -181,7 +182,8 @@ GR.budget = (function () {
   function balance(J, bud) {
     const o = outlook(J);
     const avail = o.rev + taxYield(J, bud.tax) + (bud.draw || 0) - o.mand;
-    const spend = cash(J, bud.amt);
+    // An extra payment on the debt is spending too: it has to fit.
+    const spend = cash(J, bud.amt) + (bud.debtPay || 0);
     return { avail, spend, gap: avail - spend, o };
   }
 
@@ -286,7 +288,9 @@ GR.budget = (function () {
       const left = gap - spend;
       // A full rainy-day fund: windfalls go to one-time projects or tax relief instead of the bank.
       const full = o.reserve > FX().totals(J).spend * 0.12;
-      if (fis > 0.3) { const key = J.k === 'state' ? (J.F.tax.mid != null ? 'mid' : 'sales') : 'prop'; const per = taxYield(J, { [key]: 1 }); if (per > 0) bud.tax[key] = -U.round(Math.min(full ? 1 : 0.5, left * (full ? 0.8 : 0.5) / per), 2); }
+      // Heavy debt and a full reserve: some executives put the windfall toward the debt.
+      if (full && J.F.debt > 0 && (J.F.debt > FX().totals(J).spend * 0.4 || U.chance(0.35))) bud.debtPay = Math.round(Math.min(J.F.debt, left * 0.6));
+      else if (fis > 0.3) { const key = J.k === 'state' ? (J.F.tax.mid != null ? 'mid' : 'sales') : 'prop'; const per = taxYield(J, { [key]: 1 }); if (per > 0) bud.tax[key] = -U.round(Math.min(full ? 1 : 0.5, left * (full ? 0.8 : 0.5) / per), 2); }
       else if (full) { const caps = lines(J).filter((l) => l.part === 'capex').sort((a, c) => pri[c.k] - pri[a.k]).slice(0, 5); caps.forEach((l) => { bud.amt[l.k] = (bud.amt[l.k] || 0) + left * 0.6 / caps.length / 0.6; }); }
     }
     void disc;
@@ -374,7 +378,9 @@ GR.budget = (function () {
       const o = outlook(J);
       const extra = disc(J) * 0.01;
       const room = Math.max(0, o.reserve * 0.5 - (bud.draw || 0));
-      if (room > extra * 0.5) { bud.draw = (bud.draw || 0) + Math.min(room, extra); found = 'from the rainy-day fund'; }
+      // The extra debt payment is the first thing to go.
+      if ((bud.debtPay || 0) >= extra * 0.5) { const cut = Math.min(bud.debtPay, extra); bud.debtPay -= cut; found = `by shrinking the extra debt payment by ${U.money(cut)}`; }
+      else if (room > extra * 0.5) { bud.draw = (bud.draw || 0) + Math.min(room, extra); found = 'from the rainy-day fund'; }
       else { const key = J.k === 'state' ? (J.F.tax.sales != null ? 'sales' : 'high') : 'prop'; const per = taxYield(J, { [key]: 1 }); if (per > 0) { bud.tax = bud.tax || {}; bud.tax[key] = U.round((bud.tax[key] || 0) + extra / per, 2); found = `by raising the ${FX().TAXES[key].name.toLowerCase()}`; } }
       if (found) { const ls2 = lines(J).filter((l) => l.geo[want] > 0.3); const w = U.sum(ls2, (l) => l.geo[want]); ls2.forEach((l) => { bud.amt[l.k] = (bud.amt[l.k] || 0) + extra * l.geo[want] / w / (l.part === 'capex' ? 0.6 : 1); }); moved += extra; }
     }
@@ -429,6 +435,13 @@ GR.budget = (function () {
     (bud.requests || []).forEach((r) => { if (r.inProp || (amt[r.line] || 0) > (b.prov.bud.cs[r.line] || 0) + r.amt * 0.5) r.funded = true; });
     bud.requests = (bud.requests || []).filter((r) => !r.funded && s.week - r.w < 104);
     bud.fyDone = b.fy;
+    // An extra debt payment: the debt falls now; the money left unspent refills the reserve as the year runs.
+    const dp = Math.min(b.prov.bud.debtPay || 0, J.F.debt);
+    if (dp > 0) {
+      J.F.debt -= dp; J.F.reserve -= dp;
+      if (J.F.reserve < 0) { J.F.debt += -J.F.reserve; J.F.reserve = 0; }
+      GR.sim.news(s, `The FY${b.fy} budget pays down ${U.money(dp)} of ${J.name}'s debt, saving about ${U.money(dp * (J.F.mac.effRate / 100 + 0.05))} a year in debt service.`, 'gov');
+    }
     // Agencies that were turned down say so.
     if (bud.agFy === b.fy) (bud.agReq || []).map((r) => Object.assign(r, { got: reqShare(r, amt, b.prov.bud.cs) })).filter((r) => r.got < 0.3 && r.ask > 0).sort((x, y) => y.ask - x.ask).slice(0, 2)
       .forEach((r) => GR.sim.news(s, `${r.abbr} warns that without the ${U.money(r.ask)} it asked for in ${r.line.toLowerCase()}, ${r.risk}. The FY${b.fy} budget gives it ${Math.round(r.got * 100)}% of its request.`, 'gov'));
@@ -462,7 +475,7 @@ GR.budget = (function () {
     const b = L().newBill(s, jur, { title, prov, spon: ex ? ex.id : null, kind: 'budget', due: s.week + 3 });
     if (ex && ex.isPlayer) b.spon = 'me';
     b.fy = fy;
-    b.sum = `Funds every agency for FY${fy}; must balance`;
+    b.sum = `Funds every agency for FY${fy}; must balance${bud.debtPay > 0 ? `; pays down ${U.money(bud.debtPay)} of debt` : ''}`;
     return b;
   }
 
