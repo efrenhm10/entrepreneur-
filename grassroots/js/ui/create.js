@@ -228,14 +228,14 @@ GR.uiCreate = (function () {
   A('continue', () => {
     const s = GR.state.load();
     if (!s) { ui.toast('No saved game found.'); return; }
-    GR.geo.load(s.home.state, () => { ui.s = s; ui.screen = 'game'; ui.render(); });
+    GR.geo.load(s.home.state, () => { GR.fisc.upgrade(s); ui.s = s; ui.screen = 'game'; ui.render(); });
     return false;
   });
   A('importOpen', () => { ui.form.importing = true; });
   A('importDo', () => {
     try {
       const s = GR.state.importText(document.getElementById('imp').value);
-      GR.geo.load(s.home.state, () => { ui.s = s; ui.screen = 'game'; ui.form = {}; ui.save(); ui.render(); });
+      GR.geo.load(s.home.state, () => { GR.fisc.upgrade(s); ui.s = s; ui.screen = 'game'; ui.form = {}; ui.save(); ui.render(); });
       return false;
     } catch (e) { ui.toast('That save code could not be read. Copy the whole code and try again.'); }
   });

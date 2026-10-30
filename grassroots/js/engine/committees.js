@@ -453,7 +453,7 @@ GR.comm = (function () {
     if (!b || !['committee', 'markup'].includes(b.stage)) return false;
     return isMember(s, b.body, b.comm, 'me');
   }
-  const cloneBill = (b) => Object.assign({}, b, { prov: JSON.parse(JSON.stringify(b.prov)), an: b.an, _lean: null, _line: null, _reg: null, pledges: b.pledges, sweet: b.sweet, agreed: b.agreed });
+  const cloneBill = (b) => Object.assign({}, b, { prov: JSON.parse(JSON.stringify(b.prov)), an: b.an, _lean: null, _line: null, _reg: null, _auth: null, pledges: b.pledges, sweet: b.sweet, agreed: b.agreed });
   function earmarkSize(J) { return Math.round(GR.fisc.totals(J).spend * (J.k === 'nation' ? 0.000008 : 0.0003)); }
 
   // The menu of markup amendments for a bill.

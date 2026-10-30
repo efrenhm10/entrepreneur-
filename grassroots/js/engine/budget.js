@@ -175,7 +175,7 @@ GR.budget = (function () {
   // Revenue from tax changes in the budget.
   function taxYield(J, tax) {
     let v = 0;
-    Object.entries(tax || {}).forEach(([k, d]) => { const r = FX().revenue(J)[k]; if (r && J.F.tax[k] > 0) v += r.amt / J.F.tax[k] * d; });
+    Object.entries(tax || {}).forEach(([k, d]) => { const per = FX().perPoint(J, k); if (per) v += per * d; });
     return v;
   }
   function balance(J, bud) {
@@ -409,7 +409,7 @@ GR.budget = (function () {
     if (!b.prov.bud) return;
     const amt = b.prov.bud.amt;
     // Programs take their new funding.
-    Object.entries(b.prov.budProg || {}).forEach(([i, v]) => { const p = (J.F.programs || [])[+i]; if (p && v != null) { p.amt = Math.max(0, v); if (p.auth && p.amt >= p.auth * 0.8) p.auth = 0; } });
+    Object.entries(b.prov.budProg || {}).forEach(([i, v]) => { const p = (J.F.programs || [])[+i]; if (p && v != null) { if (!p.amt && v > 0) p.q0 = J.F.q || 0; p.amt = Math.max(0, v); if (p.auth && p.amt >= p.auth * 0.8) p.auth = 0; } });
     J.F.ag.forEach((a) => ['opex', 'capex'].forEach((part) => {
       const ls = bud.lines.filter((l) => l.ag === a.k && l.part === part);
       const tot = U.sum(ls, (l) => Math.max(0, amt[l.k] || 0));
@@ -479,6 +479,68 @@ GR.budget = (function () {
       { label: 'Use it as leverage: trade your vote for a district project', fx: { hours: -2 }, res: 'You open talks with the Appropriations chair.', run: 'budLever', args: { bill: b.id } },
     ] });
   }
+  // ---------- Mid-year shortfalls ----------
+  // When revenue falls short mid-year, executives act: across-the-board cuts, hiring freezes and
+  // delayed projects, a revenue package sent to the legislature, or riding it out on the reserve.
+  function trim(J, amt, capFirst) {
+    const F = J.F;
+    let left = amt;
+    if (capFirst) { const cap = U.sum(F.ag, (a) => a.capex); const f = Math.min(0.15, left * 0.6 / Math.max(1, cap)); F.ag.forEach((a) => { left -= a.capex * f; a.capex *= 1 - f; }); }
+    const op = U.sum(F.ag, (a) => a.opex);
+    const f = U.clamp(left / Math.max(1, op), 0, 0.05);
+    F.ag.forEach((a) => { a.opex *= 1 - f; });
+    return f;
+  }
+  function revenuePlan(s, jur, fac) {
+    const b = L().npcBill(s, jur, { tool: 'deficit', fac });
+    if (!b) return null;
+    b.xreq = true;
+    b.sum = `Requested by the ${jur === 'state' ? 'governor' : 'mayor'} · ` + b.sum;
+    s.jur[jur].bills.push(b);
+    return b;
+  }
+  function shortfall(s) {
+    ['state', 'city'].forEach((jur) => {
+      const J = s.jur[jur];
+      if (!J || !J.F) return;
+      const press = FX().pressure(J);
+      const fy = L().fiscalYear(s, jur);
+      J.sf = J.sf || {};
+      if (press < 0.35 || J.sf.fy === fy) return;
+      J.sf.fy = fy;
+      const t = FX().totals(J);
+      const gap = Math.max(0, -t.bal);
+      const resLow = (J.F.reserve || 0) < t.spend * 0.04;
+      const office = jur === 'state' ? 'Governor' : 'Mayor';
+      GR.sim.news(s, `${J.name} budget office: revenue is running ${U.money(gap)} short of spending this year (${(gap / t.spend * 100).toFixed(1)}%)${resLow ? ', and the rainy-day fund is nearly empty' : ''}. The budget must balance.`, 'gov');
+      const ex = G().execOf(s, jur);
+      if (!ex) return;
+      if (ex.isPlayer) {
+        GR.scenes.post(s, { jur, kicker: `Budget office · ${J.name}`, title: `A ${U.money(gap)} hole in this year's budget`,
+          text: `Revenue is coming in ${U.money(gap)} below what the budget spends. The law requires a balanced budget${resLow ? ' and the rainy-day fund is nearly gone' : `; the rainy-day fund holds ${U.money(J.F.reserve || 0)}`}. Rating agencies, legislators and the press want to know your plan.`,
+          choices: [
+            { label: `Order across-the-board cuts (about ${(Math.min(gap, t.spend * 0.03) / t.spend * 100).toFixed(1)}% of operations)`, fx: { app: -2, pw: { labor: -4, business: 2 } }, run: 'sfCut', args: { jur, amt: Math.min(gap, t.spend * 0.03) } },
+            { label: 'Freeze hiring and delay construction projects', fx: { app: -1, pw: { labor: -2 } }, run: 'sfFreeze', args: { jur, amt: Math.min(gap * 0.6, t.spend * 0.02) } },
+            { label: 'Send the legislature a revenue package', fx: { pp: -5, pw: { business: -3 } }, run: 'sfRev', args: { jur }, res: 'Your package goes to the legislature. You can also write your own in the Bill Builder under "Taxes, revenue & the economy".' },
+            { label: 'Ride it out on the rainy-day fund', fx: {}, run: 'sfRide', args: { jur } },
+          ] });
+        return;
+      }
+      // An AI executive: conservatives cut, liberals cut less and ask for revenue.
+      const fis = W().axes(ex).fis;
+      const share = U.clamp(0.55 + fis * 0.35, 0.2, 0.9);
+      const f = trim(J, Math.min(gap * share, t.spend * 0.03), fis > 0.3);
+      GR.sim.news(s, `${office} ${W().fullName(ex)} orders ${(f * 100).toFixed(1)}% mid-year cuts to state agencies${fis > 0.3 ? ', freezes hiring and delays construction' : ''} to close the gap.`.replace('state agencies', jur === 'state' ? 'state agencies' : 'city departments'), 'gov');
+      if (share < 0.75 || U.chance(0.4)) { const b = revenuePlan(s, jur, GR.billgen.factionOf(ex)); if (b) GR.sim.news(s, `${office} ${W().fullName(ex)} sends lawmakers the ${b.title}.`, 'gov'); }
+    });
+  }
+
+  if (GR.scenes) Object.assign(GR.scenes.RUN, {
+    sfCut: (s, a) => { const f = trim(s.jur[a.jur], a.amt, false); GR.sim.news(s, `${s.pols.me.fn} ${s.pols.me.ln} orders ${(f * 100).toFixed(1)}% across-the-board cuts to close the budget gap.`, 'gov'); return `Agencies cut operations ${(f * 100).toFixed(1)}%. Unions and agency heads are unhappy; the budget office breathes easier.`; },
+    sfFreeze: (s, a) => { trim(s.jur[a.jur], a.amt, true); GR.sim.news(s, `${s.pols.me.fn} ${s.pols.me.ln} freezes hiring and delays construction to close the budget gap.`, 'gov'); return 'Hiring is frozen and projects slip a year. It closes part of the gap without layoffs.'; },
+    sfRev: (s, a) => { const b = revenuePlan(s, a.jur, U.chance(0.5) ? 'liberal' : 'centrist'); if (b) GR.sim.news(s, `${s.pols.me.fn} ${s.pols.me.ln} sends lawmakers the ${b.title}.`, 'gov'); },
+    sfRide: (s, a) => { const J = s.jur[a.jur]; J.F.watch = (J.F.watch || 0) + 1; GR.sim.news(s, `Rating agencies warn ${J.name} after leaders decline to close a mid-year budget gap.`, 'gov'); return 'The reserve absorbs the gap for now. Rating agencies are watching, and next year\'s budget starts deeper in the hole.'; },
+  });
   if (GR.scenes) Object.assign(GR.scenes.RUN, {
     budHold: (s, a) => { const b = L().findBill(s, a.bill); if (!b) return; b.my.hold = a.region; s.caucusRel = s.caucusRel || {}; s.caucusRel[a.region] = (s.caucusRel[a.region] || 0) + 10; },
     budLever: (s, a) => { const b = L().findBill(s, a.bill); if (!b || !L().OPEN(b)) return; s.hoursLeft += 3; const r = askItem(s, b, U.pick(['school', 'road', 'water', 'park'])); return r.msg; },
@@ -534,5 +596,5 @@ GR.budget = (function () {
     return out;
   }
 
-  return { caucusCheck, CAT, REGIONS, has, itemVeto, geoOf, regionOf, regionName, ensure, current, lines, lineOf, outlook, cash, taxYield, balance, regional, memberScore, compile, propose, move, chairMark, rework, aiItemVeto, applyItemVetoes, onEnact, addRequest, makeBill, askItem, moveOptions, disc };
+  return { shortfall, caucusCheck, CAT, REGIONS, has, itemVeto, geoOf, regionOf, regionName, ensure, current, lines, lineOf, outlook, cash, taxYield, balance, regional, memberScore, compile, propose, move, chairMark, rework, aiItemVeto, applyItemVetoes, onEnact, addRequest, makeBill, askItem, moveOptions, disc };
 })();

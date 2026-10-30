@@ -58,7 +58,49 @@ GR.billgen = (function () {
     return { prov, title: `${stShort(c.s, c.J) === 'American' ? '' : stShort(c.s, c.J) + ' '}${ds.name} Act` };
   }
   const MECHPAY = { services: 1, payments: 1, grants: 1 };
+  // Closing a deficit, each faction its own way: the left raises revenue, the right cuts,
+  // the center splits the difference.
+  function deficitTool(c) {
+    const F = c.F, J = c.J;
+    const t = FX().totals(J);
+    // Savings already moving in other deficit bills count against the gap.
+    const pend = U.sum(pendingFixes(c.s, J), (b) => b._sav);
+    const gap = -t.bal - pend;
+    if (gap < t.spend * 0.004) return null;
+    const target = gap * pct(0.35, 0.7);
+    const share = { progressive: 0.85, liberal: 0.65, centrist: 0.5, populist: 0.6, conservative: 0.1, libertarian: 0 }[c.fac];
+    const prov = { tax: {}, ap: {}, fee: {}, eff: {} };
+    let revNeed = target * share, cutNeed = target - revNeed;
+    // Revenue: who pays depends on the faction.
+    const keys = { progressive: ['high', 'corp', 'capg', 'prop', 'lodge'], liberal: ['high', 'corp', 'lodge', 'sin', 'prop'], centrist: ['sin', 'lodge', 'fuel', 'sales', 'prop'], populist: ['corp', 'high', 'sin', 'lodge'], conservative: ['sin', 'lodge', 'fuel'], libertarian: [] }[c.fac]
+      .filter((k) => F.tax[k] != null && FX().TAXES[k] && (k !== 'high' || F.tax.high > 0));
+    for (const k of keys) {
+      if (revNeed <= 0) break;
+      const per = FX().perPoint(J, k);
+      if (!per) continue;
+      const T = FX().TAXES[k];
+      const cap = T.unit === '¢/gal' ? 8 : T.unit === 'mills' ? 2 : k === 'lodge' ? 3 : k === 'sin' ? 8 : 1;
+      const d = U.round(Math.min(cap, revNeed / per), T.unit === '¢/gal' ? 0 : 2);
+      if (d <= 0.05) continue;
+      prov.tax[k] = d; revNeed -= d * per;
+    }
+    cutNeed += Math.max(0, revNeed) * 0.5;
+    // Cuts: across the largest discretionary lines, never more than 6% of any one.
+    const ags = F.ag.filter((a) => a.opex > 0).sort((a, b) => b.opex - a.opex).slice(0, 6);
+    const pool = U.sum(ags, (a) => a.opex);
+    if (cutNeed > 0 && pool > 0) ags.forEach((a) => { const v = Math.min(a.opex * 0.06, cutNeed * a.opex / pool); if (v > a.opex * 0.002) prov.ap[a.k] = { opex: -rnd(v) }; });
+    if (c.fac === 'centrist' || c.fac === 'conservative') { const a = c.ag || ags[0]; if (a) prov.eff[a.k] = rnd(pct(2, 5)); }
+    if (!Object.keys(prov.tax).length && !Object.keys(prov.ap).length) return null;
+    const lvl = J.k === 'nation' ? 'Deficit Reduction' : 'Budget Stabilization';
+    return { prov, title: pick(share >= 0.6 ? [`${stShort(c.s, J)} Revenue Recovery Act`, `Fair Share ${lvl} Act`, `${lvl} & Shared Sacrifice Act`] : share <= 0.15 ? [`${stShort(c.s, J)} Spending Reduction Act`, 'Live Within Our Means Act', `Taxpayer ${lvl} Act`] : [`${stShort(c.s, J)} ${lvl} Act`, 'Balanced Budget Compromise Act', `Bipartisan ${lvl} Act`]) };
+  }
+  function pendingFixes(s, J) {
+    return (J.bills || []).filter((b) => b.tool === 'deficit' && GR.legis.OPEN(b)).map((b) => { if (b._sav == null) b._sav = Math.max(0, -GR.drafting.staticCost(s, J, b.prov)); return b; });
+  }
+  const SPENDY = ['invest', 'staff', 'program', 'expand', 'earmarks', 'credits', 'taxcut', 'protect', 'safety', 'buydomestic'];
+
   const TOOLS = {
+    deficit: { name: 'Deficit reduction', make: deficitTool },
     program: { name: 'New program', make: programTool },
     invest: { name: 'Capital investment', make(c) {
       const a = c.ag; if (!a || !a.capex) return null;
@@ -263,8 +305,12 @@ GR.billgen = (function () {
     const crisis = opts.crisis || (crises.length ? U.weighted(crises.slice(0, 6), (x) => x[1].s * x[1].s)[0] : null);
     const links = crisis ? (GR.CRISIS_TYPES[crisis].ag || []).map((x) => F.ag.find((a) => a.k === x[0])).filter(Boolean) : [];
     const size = FX().totals(J).spend;
+    // A deficit changes the agenda: fewer new spending bills, more plans to close the gap.
+    const press = FX().pressure(J);
+    const tw = Object.assign({}, FACTIONS[fac].tools);
+    if (press > 0) { SPENDY.forEach((k) => { if (tw[k]) tw[k] *= 1 - 0.75 * press; }); tw.deficit = 6 * press / (1 + 2 * pendingFixes(s, J).length); }
     for (let tries = 0; tries < 6; tries++) {
-      const toolK = opts.tool || U.weighted(Object.keys(FACTIONS[fac].tools), (k) => FACTIONS[fac].tools[k]);
+      const toolK = opts.tool || U.weighted(Object.keys(tw), (k) => tw[k]);
       const ag = opts.ag ? F.ag.find((a) => a.k === opts.ag) : (links.length && U.chance(0.75) ? pick(links) : pick(F.ag));
       const out = TOOLS[toolK].make({ s, J, F, fac, spon, crisis, ag, size, body });
       if (!out) { if (opts.tool) return null; continue; }

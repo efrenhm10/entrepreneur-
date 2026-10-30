@@ -92,7 +92,7 @@ GR.legis = (function () {
     Object.entries(p.fee || {}).forEach(([k, v]) => out.push(`New revenue: ${k} (${U.money(v)}/yr)`));
     return out;
   }
-  function fmtTax(k, v) { const T = FX().TAXES[k]; return T.unit === '$/t' ? `$${U.round(v, 0)}/ton` : T.unit === 'mills' ? `${U.round(v, 2)} mills` : `${U.round(v, 2)}%`; }
+  function fmtTax(k, v) { const T = FX().TAXES[k]; return T.unit === '$/t' ? `$${U.round(v, 0)}/ton` : T.unit === 'mills' ? `${U.round(v, 2)} mills` : T.unit === '¢/gal' ? `${U.round(v, 1)}¢ a gallon` : `${U.round(v, 2)}%`; }
   function fmtParam(pd, v) { const u = pd[2]; return u === '$' ? U.money(v) : u === '$M' ? U.money(v * 1e6) : u === '%' ? `${v}%` : `${v} ${u}`; }
 
   // Fiscal direction of a bill: positive = more government (liberal), negative = less (conservative).
@@ -103,7 +103,7 @@ GR.legis = (function () {
     const p = b.prov;
     const size = budgetSize(J);
     let L = 0, soc = 0;
-    Object.entries(p.tax || {}).forEach(([k, d]) => { const T = FX().TAXES[k]; const sc = T.unit === '$/t' ? 0.006 : T.unit === 'mills' ? 0.03 : 0.12; L += T.lean * d * sc; });
+    Object.entries(p.tax || {}).forEach(([k, d]) => { const T = FX().TAXES[k]; const sc = T.unit === '$/t' ? 0.006 : T.unit === 'mills' ? 0.03 : T.unit === '¢/gal' ? 0.015 : 0.12; L += T.lean * d * sc; });
     const Ltax = L;
     const catLean = { social: 1, health: 1, edu: 0.9, env: 1, rnd: 0.6, infra: 0.4, admin: 0.3, agri: 0, defense: -0.9, safety: -0.6 };
     Object.entries(p.ap || {}).forEach(([k, v]) => { const a = F.ag.find((x) => x.k === k); if (a) L += ((v.opex || 0) + (v.capex || 0)) / size * 12 * (catLean[a.cat] || 0.3); });
@@ -114,7 +114,8 @@ GR.legis = (function () {
     Object.keys(p.ent || {}).forEach((k) => { if (k !== 'pension' && c0[k]) L += (c1[k].cost - c0[k].cost) / size * 14; });
     Object.values(p.reg || {}).forEach((d) => { L += d * 0.15; });
     Object.values(p.sale || {}).forEach((v) => { L -= 0.35 + v / size * 4; });
-    Object.values(p.fee || {}).forEach((v) => { L -= v / size * 6; });
+    Object.entries(p.fee || {}).forEach(([n, v]) => { if (!(p.rev && p.rev.name === n)) L -= v / size * 6; });
+    if (p.rev) L += p.rev.lean * 0.3;
     Object.entries(p.prem || {}).forEach(() => { L += 0.12; });
     (p.prog || []).forEach((x) => { L += x.lean * x.amt / size * 12; });
     (p.policy || []).forEach((x) => {
@@ -195,7 +196,9 @@ GR.legis = (function () {
       const dir = ax.fis * Math.sign(T.lean || 1);
       let ideal = Math.max(0, base * (1 - 0.35 * dir));
       if (T.unit === '$/t') ideal = Math.max(0, base + 45 * -ax.fis);
-      const unit = T.unit === '$/t' ? 25 : 3;
+      // Taxes visitors pay are an easier sell: even fiscal conservatives tolerate a bit more.
+      if (k === 'lodge') ideal = Math.max(0, base + 3 - 2.5 * ax.fis);
+      const unit = T.unit === '$/t' ? 25 : T.unit === '¢/gal' ? 10 : 3;
       taxU -= (Math.abs(cur + d - ideal) - Math.abs(cur - ideal)) / unit * 0.45;
       if (d > 0) taxU -= 0.03 * d * (T.unit === 'pp' ? 1 : 0.1);
     });
@@ -211,6 +214,9 @@ GR.legis = (function () {
     if (tx.corp) { indImpact.finance -= tx.corp / 3 * 0.6; indImpact.tech -= tx.corp / 3 * 0.6; indImpact.manufacturing -= tx.corp / 3 * 0.4; }
     if (tx.capg) indImpact.finance -= tx.capg / 4;
     if (tx.sev) indImpact.energy -= tx.sev / 3;
+    if (tx.lodge) indImpact.tourism -= tx.lodge / 2;
+    if (tx.sin) indImpact.retail -= tx.sin / 12;
+    if (tx.fuel) { indImpact.logistics -= tx.fuel / 15; indImpact.ag -= tx.fuel / 30; }
     Object.entries(prov.ap || {}).forEach(([k, v]) => {
       const a = F.ag.find((x) => x.k === k);
       if (!a) return;
@@ -262,8 +268,15 @@ GR.legis = (function () {
       effD += Math.abs(amt);
     });
     const yrs = an ? an.years : 5;
-    const fiscal = an ? -Math.tanh((an.cumDef / Math.max(1, size * yrs)) * 10) * (0.4 + 0.8 * cx.hawk) + U.clamp(an.ratingD / 10, -0.3, 0.3) : 0;
-    let ae = effD ? 0.6 * (effN / effD) + 0.4 * fiscal : fiscal;
+    // In a deficit everyone counts the cost (hawks most), and bills that close the gap gain friends.
+    const press = FX().pressure(J);
+    let fiscal = an ? -Math.tanh((an.cumDef / Math.max(1, size * yrs)) * 10) * (0.4 + 0.8 * cx.hawk) * (1 + 1.5 * press) + U.clamp(an.ratingD / 10, -0.3, 0.3) : 0;
+    // New authorizations add to the bill the next budget has to pay.
+    if (press > 0 && prov.approp && GR.drafting) {
+      if (b._auth == null) b._auth = Math.max(0, GR.drafting.staticCost(s, J, Object.assign({}, prov, { approp: false })));
+      fiscal -= press * Math.tanh(b._auth / size * 25) * (0.3 + 0.9 * cx.hawk);
+    }
+    let ae = effD ? (0.6 - 0.35 * press) * (effN / effD) + (0.4 + 0.35 * press) * fiscal : fiscal;
     ae = U.clamp(ae, -1, 1);
     // 4. Political capital & earmarks.
     let pc = 0;
@@ -932,10 +945,10 @@ GR.legis = (function () {
   }
 
   // AI legislation is dealt from the policy deck (see billgen.js).
-  function npcBill(s, jur) {
+  function npcBill(s, jur, opts = {}) {
     // Bills start in either chamber; tilt toward yours so you see them while they are live.
     const mine = G().myBody(s);
-    const d = GR.billgen.deal(s, jur, mine && G().bodiesOf(s, jur).includes(mine) && U.chance(0.6) ? { body: mine } : {});
+    const d = GR.billgen.deal(s, jur, Object.assign(mine && G().bodiesOf(s, jur).includes(mine) && U.chance(0.6) ? { body: mine } : {}, opts));
     if (!d) return null;
     const recon = jur === 'nation' && U.chance(0.12) && !d.prov.policy.length && !Object.keys(d.prov.reg).length && !Object.keys(d.prov.prem).length && !(s.recon || {})[fiscalYear(s, 'nation')];
     const b = newBill(s, jur, { title: d.title, prov: d.prov, spon: d.spon.id, kind: recon ? 'reconciliation' : 'regular', body: d.body, due: s.week + U.randInt(1, 3), fac: d.fac, tool: d.tool, crisis: d.crisis });
@@ -1110,6 +1123,6 @@ GR.legis = (function () {
 
   return {
     WEIGHTS, emptyProv, allBills, findBill, newBill, describe, leanOf, components, roll, needed, analysis, stepBill, tasks, decide, introCost, validate, introduce,
-    committeeName, committeeFor, counterparties, negotiate, canEarmark, earmarkName, amendFor, provCount, ctxOf, discharge, callVote, reallocate, audit, npcBills, budgetBill, submitBudget, week, fiscalYear, fmtTax, fmtParam, partyLine, rebellion, exposure, OPEN,
+    committeeName, committeeFor, counterparties, negotiate, canEarmark, earmarkName, amendFor, provCount, ctxOf, discharge, callVote, reallocate, audit, npcBills, npcBill, budgetBill, submitBudget, week, fiscalYear, fmtTax, fmtParam, partyLine, rebellion, exposure, OPEN,
   };
 })();

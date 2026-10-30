@@ -18,6 +18,42 @@ GR.drafting = (function () {
     { k: 'major', name: 'Major', desc: 'A landmark effort. Big results, big fight.' },
   ];
   const SC = { pilot: 0, standard: 1, major: 2 };
+  // Revenue that isn't a tax rate: fees, tolls, fines, gaming and loophole closers.
+  // [key, name, what it does, yearly yield as a share of spending at standard size, lean (-1 right … +1 left), keywords, where the money usually goes, min population]
+  const REV = {
+    state: [
+      ['vehreg', 'Raise vehicle registration fees', 'Add $25 to the annual car and truck registration fee.', 0.0035, 0, 'vehicle vehicles registration car cars truck trucks plates dmv', ['dot']],
+      ['evfee', 'Annual electric-vehicle road fee', 'Charge EVs an annual fee in place of the gas tax they never pay.', 0.0006, -0.3, 'electric ev evs hybrid', ['dot']],
+      ['tolls', 'Toll new express lanes', 'Charge variable tolls on new express lanes on the busiest highways.', 0.003, -0.1, 'toll tolls express lanes highway highways turnpike', ['dot']],
+      ['betting', 'Legalize and tax sports betting', 'License mobile and casino sportsbooks and tax their gross gaming revenue at 20%.', 0.0035, -0.1, 'sports betting bet bets gambling casino casinos wagering sportsbook sportsbooks gaming', ['k12', 'gen']],
+      ['lottery', 'Modernize the state lottery', 'Sell tickets online and add new games, with proceeds to education.', 0.002, -0.1, 'lottery lotto scratch tickets', ['hied', 'k12']],
+      ['parks', 'Raise park, hunting and fishing fees', 'Raise state park entry and hunting and fishing license fees.', 0.0007, 0, 'park parks hunting fishing license licenses camping entry', ['env']],
+      ['loopholes', 'Close corporate tax loopholes', 'Adopt combined reporting and end the deductions companies use to shift profits out of state.', 0.004, 0.6, 'loophole loopholes shelters shifting offshore combined reporting', []],
+      ['fines', 'Raise court fees and traffic fines', 'Raise court costs and fines for moving violations.', 0.0012, -0.2, 'fines fine court courts traffic tickets speeding', ['police', 'corr']],
+    ],
+    city: [
+      ['parking', 'Raise parking meter rates and fines', 'Extend meter hours, price spaces by demand and raise parking fines.', 0.006, 0, 'parking meter meters garage garages', ['transit', 'works']],
+      ['congestion', 'Congestion pricing downtown', 'Charge drivers a daily fee to enter the central business district at peak hours.', 0.01, 0.4, 'congestion pricing downtown cordon charge', ['transit'], 500000],
+      ['permits', 'Raise building permit and inspection fees', 'Charge developers the full cost of permits and inspections.', 0.004, 0.2, 'permit permits inspection inspections development developers building', ['works', 'housing']],
+      ['franchise', 'Utility franchise fee', 'Charge electric, gas and cable companies for the use of city streets.', 0.006, 0.1, 'utility utilities franchise cable electric', []],
+      ['naming', 'Sell naming rights and advertising', 'Sell naming rights to arenas, stations and parks, and ads on city property.', 0.0012, -0.4, 'naming rights advertising ads sponsorship sponsor sponsors', ['parks']],
+      ['str', 'Register and charge short-term rentals', 'Require Airbnb-style rentals to register and pay an annual permit fee.', 0.0015, 0.3, 'airbnb vrbo short-term rental rentals', ['housing']],
+    ],
+    nation: [
+      ['carried', 'Close the carried-interest loophole', 'Tax private-equity and hedge-fund managers\' fees as ordinary income.', 0.0004, 0.6, 'carried interest loophole loopholes hedge private equity', []],
+      ['irs', 'Fund IRS enforcement of high earners', 'Hire auditors for high-income and corporate returns; each dollar returns several.', 0.003, 0.5, 'irs audit audits enforcement tax gap cheats evasion', []],
+      ['spectrum', 'Auction federal wireless spectrum', 'Sell unused federal airwaves to wireless carriers.', 0.0008, -0.3, 'spectrum wireless airwaves 5g auction', []],
+      ['drugneg', 'Collect drug-price rebates', 'Make drug makers pay rebates when prices rise faster than inflation.', 0.0015, 0.5, 'drug drugs prescription rebates pharma', ['hhs']],
+    ],
+    school: [
+      ['rental', 'Rent out school facilities', 'Rent gyms, fields and auditoriums to community groups on nights and weekends.', 0.002, 0, 'rent rental facilities gyms fields auditorium', []],
+      ['activity', 'Activity and athletic fees', 'Charge families a fee for sports and extracurriculars, waived for low-income students.', 0.003, -0.4, 'activity athletic sports fees extracurricular', []],
+    ],
+  };
+  // Where tax revenue usually goes when it is dedicated.
+  const DEST = { lodge: ['econ', 'parks', 'gen', 'transit'], fuel: ['dot', 'works', 'transit'], sin: ['mcd', 'gen', 'k12'], sales: ['k12', 'transit'], prop: ['instr', 'police', 'works'], sev: ['env', 'hied'], carbon: ['env', 'epa', 'doe'] };
+  const revOf = (J, k) => (REV[J.k] || []).find((r) => r[0] === k);
+  const taxVerb = (F, k, dir) => (dir > 0 && !F.tax[k] ? 'Create a' : dir < 0 ? 'Cut the' : 'Raise the');
 
   // What capital money and operating money buy, by problem.
   const BUILD = { housing: 'affordable housing construction', infra: 'road, bridge and facility repairs', migration: 'campus and research facilities', education: 'school construction and modernization', health: 'clinic and hospital capacity', opioid: 'treatment and recovery centers', crime: 'public-safety facilities and equipment', disaster: 'flood control and disaster resilience projects', water: 'water and sewer system upgrades', homeless: 'supportive housing units', energy: 'research parks and industry diversification', poverty: 'community facilities in high-poverty neighborhoods', border: 'border infrastructure and technology', readiness: 'military construction and procurement', veterans: 'VA medical facilities', healthcosts: 'community health centers', debt: 'deferred maintenance' };
@@ -43,7 +79,7 @@ GR.drafting = (function () {
       return { k, name: T.name, sev: c.s, trend: d4, rank: i + 1, sal: T.sal, crisis: true };
     });
     for (let i = out.length - 1; i >= 0; i--) if (!approaches(s, jur, out[i].k).length) out.splice(i, 1);
-    out.push({ k: '_tax', name: 'Taxes & the economy', desc: 'Cut or raise a tax, or change the rules for an industry.' });
+    out.push({ k: '_tax', name: 'Taxes, revenue & the economy', desc: 'Raise money for the general fund (taxes, fees, tolls, gaming), cut a tax, or change the rules for an industry.' });
     out.push({ k: '_law', name: 'Change a law', desc: 'Social and policy law: guns, abortion, policing, elections, labor, schools.' });
     out.push({ k: '_gov', name: 'Government performance', desc: 'Audits, management reform, privatization and spending cuts.' });
     // Policy areas: start a new program from the library, or design your own.
@@ -91,7 +127,7 @@ GR.drafting = (function () {
       });
       (T.tax || []).forEach(([tk, w, dir]) => {
         if (F.tax[tk] == null) return;
-        out.push({ id: `tax:${tk}:${dir}`, kind: 'tax', tax: tk, dir, w, name: `${dir < 0 ? 'Cut' : 'Raise'} the ${FX().TAXES[tk].name.toLowerCase()}`, desc: `Now ${L().fmtTax(tk, F.tax[tk])}.` });
+        out.push({ id: `tax:${tk}:${dir}`, kind: 'tax', tax: tk, dir, w, name: `${taxVerb(F, tk, dir)} ${FX().TAXES[tk].name.toLowerCase()}`, desc: `Now ${L().fmtTax(tk, F.tax[tk])}.` });
       });
       out.forEach((x) => { if (x.ent === 'pension') { x.name = 'Pay down the pension debt'; x.desc = `Raise employer contributions toward the actuarial requirement (now ${F.ent.pension.p.pct}%).`; } });
       // Programs from the library aimed at this problem, and room to design your own.
@@ -104,12 +140,15 @@ GR.drafting = (function () {
     } else if (issue === '_tax') {
       FX().LEVEL_TAXES[J.k].filter((k) => F.tax[k] != null).forEach((k) => {
         const Tx = FX().TAXES[k];
-        out.push({ id: `tax:${k}:-1`, kind: 'tax', tax: k, dir: -1, name: `Cut the ${Tx.name.toLowerCase()}`, desc: `Now ${L().fmtTax(k, F.tax[k])}.` });
-        out.push({ id: `tax:${k}:1`, kind: 'tax', tax: k, dir: 1, name: `Raise the ${Tx.name.toLowerCase()}`, desc: `Now ${L().fmtTax(k, F.tax[k])}. The money goes to the general fund.` });
+        if (F.tax[k] > 0) out.push({ id: `tax:${k}:-1`, kind: 'tax', tax: k, dir: -1, cat: 'Tax rates', name: `Cut the ${Tx.name.toLowerCase()}`, desc: `Now ${L().fmtTax(k, F.tax[k])}.` });
+        out.push({ id: `tax:${k}:1`, kind: 'tax', tax: k, dir: 1, cat: 'Tax rates', name: `${taxVerb(F, k, 1)} ${Tx.name.toLowerCase()}`, desc: `${F.tax[k] ? `Now ${L().fmtTax(k, F.tax[k])}` : `${J.name} has none today`}. Raises about ${U.money((FX().perPoint(J, k) || 0) * taxStep(k, 1))} a year for the general fund at the standard size.` });
+      });
+      (REV[J.k] || []).filter((r) => !r[7] || (J.pop || 0) >= r[7]).forEach((r) => {
+        out.push({ id: `rev:${r[0]}`, kind: 'rev', rev: r[0], cat: 'Fees, tolls & other revenue', name: r[1], desc: `${r[2]} About ${U.money(FX().totals(J).spend * r[3])} a year.` });
       });
       if (J.k !== 'school' && J.k !== 'city') GR.INDUSTRIES.forEach((x) => {
-        out.push({ id: `reg:${x.k}:-1`, kind: 'reg', ind: x.k, dir: -1, name: `Cut red tape: ${x.name.toLowerCase()}`, desc: `Streamline permits and compliance (now ${U.round(F.reg[x.k] || 0, 1)}% of output).` });
-        out.push({ id: `reg:${x.k}:1`, kind: 'reg', ind: x.k, dir: 1, name: `New safeguards: ${x.name.toLowerCase()}`, desc: 'Consumer, worker and environmental protections that raise compliance costs.' });
+        out.push({ id: `reg:${x.k}:-1`, kind: 'reg', ind: x.k, dir: -1, cat: 'Industry rules', name: `Cut red tape: ${x.name.toLowerCase()}`, desc: `Streamline permits and compliance (now ${U.round(F.reg[x.k] || 0, 1)}% of output).` });
+        out.push({ id: `reg:${x.k}:1`, kind: 'reg', ind: x.k, dir: 1, cat: 'Industry rules', name: `New safeguards: ${x.name.toLowerCase()}`, desc: 'Consumer, worker and environmental protections that raise compliance costs.' });
       });
     } else if (issue === '_law') {
       GR.policiesFor(J.k).filter((p) => !['incometax', 'corptax', 'capgains', 'estatetax', 'propertytax'].includes(p.k) && J.law[p.k] != null).forEach((p) => {
@@ -127,7 +166,10 @@ GR.drafting = (function () {
   }
 
   // ---------- Compile ----------
-  const perPoint = (J, k) => { const r = FX().revenue(J)[k]; return r && J.F.tax[k] > 0 ? r.amt / J.F.tax[k] : null; };
+  const perPoint = (J, k) => FX().perPoint(J, k);
+  // How far a bill moves a rate at each size.
+  const TSTEP = { lodge: [1, 2, 4], sin: [3, 6, 12], fuel: [3, 6, 12] };
+  function taxStep(k, i) { const Tx = FX().TAXES[k]; return (TSTEP[k] || (Tx.unit === '$/t' ? [5, 15, 30] : Tx.unit === 'mills' ? [0.5, 1.5, 3] : [0.25, 0.6, 1.25]))[i]; }
   function staticCost(s, J, prov) {
     const c = FX().cloneJ(J);
     const t0 = FX().totals(c);
@@ -141,18 +183,18 @@ GR.drafting = (function () {
     const i = SC[scale] || 0;
     const prov = L().emptyProv();
     const ag = a.ag && F.ag.find((x) => x.k === a.ag);
-    let head = '', text = '', title = '';
+    let head = '', text = '', title = '', text0 = '';
     const where = placeName(s, J);
     if (a.kind === 'prog' || a.kind === 'custom') {
       let spec;
-      if (a.kind === 'prog') spec = { k: a.prog, scale };
+      if (a.kind === 'prog') spec = { k: a.prog, scale, terms: d && d.terms };
       else {
         const c = (d && d.custom) || {};
         const raw = String(c.desc || '').trim().replace(/\.*$/, '').replace(/^(to|a program to|a program that|create a program to|create a program that)\s+/i, '');
         const desc = raw ? (/^\w+ing\b/i.test(raw) ? `work toward ${raw.replace(/^./, (x) => x.toLowerCase())}` : raw.replace(/^./, (x) => x.toLowerCase())) : '';
         const tg = Array.isArray(c.tgt) ? c.tgt.filter((k) => F.crises[k]) : null;
         const per = tg && tg.length ? [0, 0.45, 0.35, 0.28][Math.min(3, tg.length)] : 0;
-        spec = { name: c.name || 'New Program', desc, area: a.area, mech: c.mech || 'services', ag: c.ag || null, scale, tgtOnly: tg ? Object.fromEntries(tg.map((k) => [k, per])) : null };
+        spec = { name: c.name || 'New Program', desc, area: a.area, mech: c.mech || 'services', terms: d && d.terms, ag: c.ag || null, scale, tgtOnly: tg ? Object.fromEntries(tg.map((k) => [k, per])) : null };
       }
       const ds = GR.prog.design(s, J, spec);
       GR.prog.provFor(J, ds, prov);
@@ -205,12 +247,23 @@ GR.drafting = (function () {
       title = `${tcase(opts[to].replace(/[^\w\s'-]/g, ' ')).split(/\s+/).filter(Boolean).slice(0, 6).join(' ')} Act`;
     } else if (a.kind === 'tax') {
       const Tx = FX().TAXES[a.tax];
-      const base = Tx.unit === '$/t' ? [5, 15, 30][i] : Tx.unit === 'mills' ? [0.5, 1.5, 3][i] : [0.25, 0.6, 1.25][i];
-      const d = a.dir * Math.min(base, a.dir < 0 ? F.tax[a.tax] : 99);
+      const d = a.dir * Math.min(taxStep(a.tax, i), a.dir < 0 ? F.tax[a.tax] : 99);
       prov.tax[a.tax] = U.round(d, 2);
       head = 'TAX RATES';
-      text = `The ${Tx.name.toLowerCase()} changes from ${L().fmtTax(a.tax, F.tax[a.tax])} to ${L().fmtTax(a.tax, F.tax[a.tax] + d)}.`;
-      title = a.dir < 0 ? `${where} ${{ high: 'Top Rate Relief', mid: 'Middle-Class Tax Relief', low: 'Working Families Tax Relief', corp: 'Jobs & Competitiveness', sales: 'Sales Tax Relief', prop: 'Property Tax Relief', capg: 'Investment Growth', payroll: 'Paycheck Relief', carbon: 'Energy Cost Relief', sev: 'Energy Production' }[a.tax] || 'Tax Relief'} Act` : `${where} ${{ high: 'Fair Share', corp: 'Corporate Accountability', carbon: 'Clean Air', sev: 'Resource Dividend', sales: 'Revenue', prop: 'Community Investment' }[a.tax] || 'Revenue'} Act`;
+      text = !F.tax[a.tax] && d > 0 ? `${body(J)[0].toUpperCase() + body(J).slice(1)} levies a ${Tx.name.toLowerCase()} of ${L().fmtTax(a.tax, d)}${a.tax === 'lodge' ? ' on hotel rooms, motels and short-term rentals, collected from guests by the operator' : ''}.` : `The ${Tx.name.toLowerCase()} changes from ${L().fmtTax(a.tax, F.tax[a.tax])} to ${L().fmtTax(a.tax, F.tax[a.tax] + d)}.`;
+      title = a.dir < 0 ? `${where} ${{ high: 'Top Rate Relief', mid: 'Middle-Class Tax Relief', low: 'Working Families Tax Relief', corp: 'Jobs & Competitiveness', sales: 'Sales Tax Relief', prop: 'Property Tax Relief', capg: 'Investment Growth', payroll: 'Paycheck Relief', carbon: 'Energy Cost Relief', sev: 'Energy Production', lodge: 'Hospitality Relief', sin: 'Excise Relief', fuel: 'Gas Tax Relief' }[a.tax] || 'Tax Relief'} Act` : `${where} ${{ high: 'Fair Share', corp: 'Corporate Accountability', carbon: 'Clean Air', sev: 'Resource Dividend', sales: 'Revenue', prop: 'Community Investment', lodge: 'Visitor Tax', sin: 'Public Health Excise', fuel: 'Roads & Bridges Funding' }[a.tax] || 'Revenue'} Act`;
+    } else if (a.kind === 'rev') {
+      const r = revOf(J, a.rev);
+      const amt = Math.round(FX().totals(J).spend * r[3] * [0.5, 1, 1.8][i]);
+      const fname = { vehreg: 'Vehicle registration fee increase', evfee: 'EV road fee', tolls: 'Express lane tolls', betting: 'Sports betting tax', lottery: 'Lottery proceeds (new games)', parks: 'Park & license fees', loopholes: 'Corporate tax (loopholes closed)', fines: 'Court fees & fines', parking: 'Parking revenue', congestion: 'Congestion charge', permits: 'Permit & inspection fees', franchise: 'Utility franchise fees', naming: 'Naming rights & advertising', str: 'Short-term rental permits', carried: 'Carried-interest income tax', irs: 'IRS enforcement collections', spectrum: 'Spectrum auction proceeds', drugneg: 'Drug-price rebates', rental: 'School facility rentals', activity: 'Student activity fees' }[a.rev] || r[1];
+      prov.fee[fname] = amt;
+      prov.rev = { name: fname, lean: r[4] };
+      // Betting has to be legal before it can be taxed.
+      if (a.rev === 'betting' && J.law.gambling != null && J.law.gambling > 1) { prov.policy.push({ k: 'gambling', to: 1 }); text0 = `Sports betting is legalized at licensed venues and online. `; }
+      if (a.rev === 'irs') { const irs = F.ag.find((x) => x.irs) || F.ag[0]; prov.ap[irs.k] = { opex: Math.round(amt * 0.2) }; }
+      head = 'REVENUE';
+      text = `${text0}${r[2].replace(/\.$/, '')}. Expected to raise about ${U.money(amt)} a year.`;
+      title = `${where} ${{ vehreg: 'Road User Fee', evfee: 'Road Usage Fairness', tolls: 'Express Lanes', betting: 'Sports Wagering', lottery: 'Lottery Modernization', parks: 'Outdoor Recreation Funding', loopholes: 'Tax Fairness & Loophole Closing', fines: 'Court Funding', parking: 'Parking Reform', congestion: 'Congestion Relief', permits: 'Development Fee', franchise: 'Right-of-Way', naming: 'Public Sponsorship', str: 'Short-Term Rental Accountability', carried: 'Carried Interest Fairness', irs: 'Tax Gap Enforcement', spectrum: 'Spectrum Auction', drugneg: 'Drug Price Rebate', rental: 'Community Use of Schools', activity: 'Student Activities Funding' }[a.rev] || 'Revenue'} Act`;
     } else if (a.kind === 'reg') {
       const d = a.dir * [0.2, 0.5, 1][i];
       const ind = GR.INDUSTRIES.find((x) => x.k === a.ind);
@@ -240,6 +293,18 @@ GR.drafting = (function () {
     return { prov, head, text, title };
   }
 
+  // Where a revenue bill's money can go.
+  function destOptions(s, jur, a) {
+    const J = s.jur[jur];
+    const F = J.F;
+    if (!a || !(a.kind === 'rev' || (a.kind === 'tax' && a.dir > 0))) return [];
+    const pref = a.kind === 'tax' ? (DEST[a.tax] || []) : (revOf(J, a.rev) || [])[6] || [];
+    const ags = pref.map((k) => F.ag.find((x) => x.k === k)).filter(Boolean);
+    F.ag.slice().sort((x, y) => y.opex - x.opex).forEach((g) => { if (ags.length < 7 && !ags.includes(g)) ags.push(g); });
+    return [{ k: 'gf', name: 'The general fund', desc: J.k === 'nation' ? 'Reduces the deficit. Fiscal hawks like it best.' : 'Closes the budget gap and is available for any future appropriation. The flexible choice; budget writers like it.' }]
+      .concat(ags.map((g) => ({ k: 'ag:' + g.k, name: `Dedicate it to ${g.abbr}`, desc: `Earmarked for ${agName(g).replace(/\.$/, '')}${pref.includes(g.k) ? ', the usual use for this money' : ''}. Easier to sell to voters, but it can't help balance the budget.` })));
+  }
+
   // How the bill pays for itself.
   function payOptions(s, jur, cost, a) {
     const J = s.jur[jur];
@@ -253,8 +318,9 @@ GR.drafting = (function () {
       if (!per) return;
       const d = cost / per;
       const Tx = FX().TAXES[k];
-      if (d > (Tx.unit === 'mills' ? 6 : Tx.unit === '$/t' ? 60 : 3)) return;
-      out.push({ k: `tax:${k}`, name: `Raise the ${Tx.name.toLowerCase()} by ${Tx.unit === '$/t' ? '$' + U.round(d, 0) + '/ton' : U.round(d, 2) + (Tx.unit === 'mills' ? ' mills' : ' points')}`, desc: `Raises about ${U.money(cost)} a year.` });
+      if (d > (Tx.unit === 'mills' ? 6 : Tx.unit === '$/t' ? 60 : Tx.unit === '¢/gal' ? 15 : k === 'lodge' || k === 'sin' ? 8 : 3)) return;
+      const by = Tx.unit === '$/t' ? '$' + U.round(d, 0) + '/ton' : Tx.unit === '¢/gal' ? U.round(d, 1) + '¢ a gallon' : U.round(d, 2) + (Tx.unit === 'mills' ? ' mills' : ' points');
+      out.push({ k: `tax:${k}`, name: F.tax[k] ? `Raise the ${Tx.name.toLowerCase()} by ${by}` : `Create a ${Tx.name.toLowerCase()} of ${by.replace(' points', '%')}`, desc: `Raises about ${U.money(cost)} a year.` });
     });
     F.ag.filter((g) => g.opex > cost * 4 && g.k !== (a && a.ag)).sort((x, y) => y.opex - x.opex).slice(0, 6).forEach((g) => {
       out.push({ k: `cut:${g.k}`, name: `Cut ${g.abbr} operations by ${U.round(cost / g.opex * 100, 1)}%`, desc: `Takes ${U.money(cost)} a year from ${agName(g)}.` });
@@ -275,7 +341,7 @@ GR.drafting = (function () {
       const k = pay.slice(4);
       const per = perPoint(J, k);
       if (!per) return '';
-      const d = U.round(cost / per, FX().TAXES[k].unit === '$/t' ? 0 : 2);
+      const d = U.round(cost / per, FX().TAXES[k].unit === '$/t' ? 0 : FX().TAXES[k].unit === '¢/gal' ? 1 : 2);
       prov.tax[k] = U.round((prov.tax[k] || 0) + d, 2);
       return `To pay for this Act, the ${FX().TAXES[k].name.toLowerCase()} rises from ${L().fmtTax(k, F.tax[k])} to ${L().fmtTax(k, F.tax[k] + d)}.`;
     }
@@ -323,6 +389,18 @@ GR.drafting = (function () {
     const earAmt = Math.round(FX().totals(J).spend * (J.k === 'nation' ? 0.000004 : 0.00012));
     if (R.ear && s.pols[R.ear]) { const p = s.pols[R.ear]; prov.ear.push({ who: p.id, ag: earAg.k, amt: earAmt, proj: L().earmarkName(s, p, earAg) }); sections.push(['COMMUNITY PROJECT', `${U.money(earAmt)} is directed to the ${prov.ear[prov.ear.length - 1].proj}, at the request of ${W().fullName(p)}.`]); }
     if (R.mine) { const me = s.pols.me; prov.ear.push({ who: 'me', ag: earAg.k, amt: earAmt, proj: L().earmarkName(s, me, earAg) }); sections.push(['COMMUNITY PROJECT', `${U.money(earAmt)} is directed to the ${prov.ear[prov.ear.length - 1].proj} in the sponsor's district.`]); }
+    // Where new revenue goes: the general fund unless the bill dedicates it.
+    if (a.kind === 'rev' || (a.kind === 'tax' && a.dir > 0)) {
+      const raised = -staticCost(s, J, prov);
+      const dg = d.dest && d.dest.startsWith('ag:') && F.ag.find((x) => x.k === d.dest.slice(3));
+      if (raised > 0 && dg) {
+        const v = prov.ap[dg.k] || (prov.ap[dg.k] = {});
+        v.opex = (v.opex || 0) + Math.floor(raised * 0.98);
+        sections.push(['DEDICATED REVENUE', `Revenue raised by this Act, about ${U.money(raised)} a year, is dedicated to ${agName(dg)} and may be used for no other purpose.`]);
+      } else if (raised > 0) {
+        sections.push(['USE OF REVENUE', `Revenue raised by this Act, about ${U.money(raised)} a year, is deposited in the general fund${J.k === 'nation' ? ' and reduces the deficit' : ', where it closes the projected budget gap and is available for future appropriations'}.`]);
+      }
+    }
     const cost = staticCost(s, J, prov);
     const payText = applyPay(s, J, prov, cost, d.pay, a);
     if (payText === null) sections.push(['SUBJECT TO APPROPRIATION', `No funds are appropriated by this Act. The ${U.money(cost)} a year it authorizes may be spent only as provided in a future appropriations act.`]);
@@ -392,7 +470,11 @@ GR.drafting = (function () {
     const has = (list) => list.split(' ').filter((w) => set.has(w));
     const phrase = (p) => String(text).toLowerCase().includes(p);
     const down = has('cut cuts lower lowering reduce reducing relief eliminate end repeal freeze').length > 0 || phrase('no new tax');
-    const up = has('raise raising increase increasing hike tax-the-rich millionaire millionaires billionaires wealthy surcharge').length > 0 || phrase('fair share') || phrase('tax the rich');
+    const up = has('raise raising increase increasing hike tax-the-rich millionaire millionaires billionaires wealthy surcharge').length > 0 || phrase('fair share') || phrase('tax the rich') || /\b(create|creating|new|impose|levy|establish|add|adding|institute|enact|introduce|start|more|higher)\b/i.test(text);
+    const taxWord = /\b(tax|taxes|taxing|levy|surcharge)\b/i.test(text);
+    const loanWord = /\b(loan|loans|lend|lending|revolving)\b/i.test(text);
+    // Money for the general fund: closing a deficit or shortfall rather than funding something.
+    const gen = /general fund|deficit|shortfall|budget gap|close the gap|balance the budget|balanced budget|revenue|raise money|pay down|debt/i.test(text);
     const issueScore = {};
     Object.entries(LEX).forEach(([k, l]) => { const h = has(l); issueScore[k] = h.length; });
     const kindScore = {};
@@ -425,7 +507,9 @@ GR.drafting = (function () {
           sc += pm * 2.5 + tm * 1.1 - (tm ? 0 : 1.5);
           why.push(pol.name.toLowerCase());
         }
-        if (a.kind === 'tax') { const tw = words(FX().TAXES[a.tax].name); const tm = ws.filter((w) => tw.includes(w) && w !== 'tax').length; if (!set.has('tax') && !set.has('taxes') && !tm) return; if (!tm && has('property sales income corporate payroll carbon capital gains severance gas').length) return; sc += tm * 2 + (a.dir < 0 ? (down ? 2 : -1) : (up ? 2 : -1)); }
+        if (a.kind === 'rev') { const r = revOf(s.jur[jur], a.rev); const rw = new Set(words(r[5])); const rm = ws.filter((w) => rw.has(w)).length; if (!rm) return; sc += rm * 2.2 + (gen ? 1.5 : 0) + (taxWord ? 2 : 0) + (down ? -2 : 0); }
+        if (a.kind === 'tax' && !taxWord) return;
+        if (a.kind === 'tax') { const Tx = FX().TAXES[a.tax]; const tw = words(Tx.name + ' ' + (Tx.kw || '')); const tm = ws.filter((w) => tw.includes(w) && w !== 'tax').length + (a.dir > 0 && gen && (set.has('tax') || set.has('taxes')) ? 0.5 : 0); if (!set.has('tax') && !set.has('taxes') && !tm) return; if (!tm && has('property sales income corporate payroll carbon capital gains severance gas').length) return; sc += tm * 2 + (a.dir < 0 ? (down ? 2 : -1) : (up ? 2 : -1)); }
         if (a.kind === 'reg') { if (!kindScore.reg && !overlap.length) return; sc += a.dir < 0 ? (down ? 1 : 0) : (has('protect safeguards safety').length ? 1 : 0); }
         if (a.kind === 'cut' || a.kind === 'sale' || a.kind === 'reform') { if (!km) return; }
         if (a.kind === 'ent') { const def = entDef(s.jur[jur], a.ent); const nw = words(a.ent + ' ' + (def ? def.name : '')); if (ws.some((w) => nw.includes(w) && w.length > 3)) sc += 3; }
@@ -434,10 +518,13 @@ GR.drafting = (function () {
         if (sc >= 2.4) cands.push({ issue: iss.k, appr: a.id, sc, name: a.name, issueName: iss.name, why });
       });
     });
+    // Raising revenue "for the general fund" is a tax or fee bill, not a spending program.
+    if (gen && cands.some((c) => /^(tax:.*:1|rev:)/.test(c.appr))) cands.forEach((c) => { if (/^(tax:.*:1|rev:)/.test(c.appr)) c.sc += 3; });
     cands.sort((x, y) => y.sc - x.sc);
     // Scale, payment and extras the idea mentions.
     const hints = {};
-    if (has('pilot small test trial modest').length) hints.scale = 'pilot';
+    hints.gen = gen;
+    if (has('pilot test trial modest').length || (set.has('small') && !/small[- ]business/i.test(text))) hints.scale = 'pilot';
     else if (has('major massive huge historic landmark sweeping billions bold').length || phrase('billion')) hints.scale = 'major';
     if (has('millionaire millionaires billionaires wealthy rich').length || phrase('fair share')) hints.pay = 'tax:high';
     else if (has('corporations corporate companies').length && up) hints.pay = 'tax:corp';
@@ -454,7 +541,8 @@ GR.drafting = (function () {
     // Programs from the library, and the option to write it as a program of your own.
     if (GR.prog) {
       const pm = GR.prog.match(s, jur, text);
-      pm.progs.forEach((x) => cands.push({ issue: '_a:' + x.p.area, appr: 'prog:' + x.p.k, sc: x.sc + 1, name: x.p.name, issueName: GR.prog.AREAS[x.p.area].name, why: [] }));
+      const revFirst = gen && cands.length && /^(tax:.*:1|rev:)/.test(cands[0].appr);
+      pm.progs.forEach((x) => cands.push({ issue: '_a:' + x.p.area, appr: 'prog:' + x.p.k, sc: x.sc + 1 - (revFirst ? 4 : 0) + (loanWord && x.p.mech === 'loans' ? 3 : 0), name: x.p.name, issueName: GR.prog.AREAS[x.p.area].name, why: [] }));
       cands.sort((x, y) => y.sc - x.sc);
       const area = pm.area || (cands[0] && cands[0].issue.startsWith('_a:') ? cands[0].issue.slice(3) : null);
       hints.custom = { name: nameFromIdea(text), desc: String(text).trim(), mech: GR.prog.mechOf(text), area };
@@ -463,5 +551,5 @@ GR.drafting = (function () {
     return { cands: cands.filter((c) => { const k = c.appr; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 6), hints };
   }
 
-  return { SCALES, issues, approaches, compile, payOptions, staticCost, placeName, interpret };
+  return { SCALES, issues, approaches, compile, payOptions, destOptions, TSTEP, staticCost, placeName, interpret };
 })();

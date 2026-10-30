@@ -15,9 +15,17 @@ GR.prog = (function () {
     grants: { name: 'Competitive grants', part: 'opex', jobs: 9, verb: 'award competitive grants to', lean: 0.1 },
     services: { name: 'Direct services & staff', part: 'opex', jobs: 11, verb: 'hire staff and deliver services to', lean: 0.2 },
     payments: { name: 'Payments to people', part: 'opex', jobs: 4, verb: 'make direct payments to', lean: 0.4 },
-    loans: { name: 'Revolving loan fund', part: 'capex', jobs: 18, verb: 'make low-interest loans to', lean: -0.1, repay: 0.4 },
+    loans: { name: 'Revolving loan fund', part: 'capex', jobs: 18, verb: 'make loans to', lean: -0.1 },
     capital: { name: 'Capital construction', part: 'capex', jobs: 8, verb: 'build and repair facilities for', lean: 0.1 },
     credit: { name: 'Tax credit', part: 'opex', jobs: 6, verb: 'provide refundable tax credits to', lean: -0.3 },
+  };
+
+  // Loan terms. rec: what comes back each year once the fund matures, per dollar lent a year
+  // (after defaults and forgiveness); years: how long until the first loans are fully repaying.
+  const TERMS = {
+    low: { name: 'Low-interest loans (2%)', desc: 'Below-market loans that banks would not make. Most are repaid; defaults and the interest subsidy cost about 15%.', rec: 0.85, years: 5, jobs: 1, lean: 0 },
+    market: { name: 'Market-rate loans', desc: 'Priced like a bank, so the fund earns a little over time. Fewer borrowers qualify, so it does less good.', rec: 1.04, years: 5, jobs: 0.7, lean: -0.3 },
+    forgive: { name: 'Forgivable loans', desc: 'Forgiven if the borrower meets goals (stays open, hires, stays in the state). Most never come back.', rec: 0.3, years: 4, jobs: 1.15, lean: 0.3 },
   };
 
   // Policy areas: who runs programs at each level (budget line + the office named in the bill),
@@ -62,7 +70,7 @@ GR.prog = (function () {
     P('cw_reform', 'children', 'Child Welfare Accountability & Reform', 'create an independent child-welfare ombudsman, publish outcomes, and modernize the case-management system', 'services', { lv: ['state', 'nation', 'city'], size: 0.35, eff: 4, lean: 0, unit: 'cases reviewed', cost: 1500, kw: 'ombudsman accountability oversight reform overhaul fix broken system modernize', bases: { press: 2 } }),
     P('cw_homevisit', 'children', 'Nurse Home Visiting for New Parents', 'send nurses to visit first-time, low-income parents through a child\'s second birthday', 'services', { tgt: { health: 0.15 }, unit: 'families visited', cost: 5500, kw: 'home visiting nurses newborn newborns new parents mothers' }),
     // Small business
-    P('sb_loans', 'smallbiz', 'Small Business Revolving Loan Fund', 'capitalize a revolving fund, run with community lenders, that makes low-interest loans to small businesses that banks turn down; repayments are lent out again', 'loans', { lv: ['state', 'nation', 'city'], unit: 'businesses financed', cost: 60000, kw: 'loan loans lending credit capital cdfi microloan microloans access', bases: { business: 3 }, ind: { retail: 0.5, finance: 0.3 } }),
+    P('sb_loans', 'smallbiz', 'Small Business Revolving Loan Fund', 'capitalize a loan fund, run with community lenders, that lends to small businesses that banks turn down', 'loans', { lv: ['state', 'nation', 'city'], unit: 'businesses financed', cost: 60000, kw: 'loan loans lending credit capital cdfi microloan microloans access', bases: { business: 3 }, ind: { retail: 0.5, finance: 0.3 } }),
     P('sb_grants', 'smallbiz', 'Main Street Small Business Grants', 'award grants of up to $50,000 to small businesses for equipment, expansion and hiring', 'grants', { unit: 'businesses funded', cost: 35000, kw: 'grant grants main street storefront relief help support', bases: { business: 3, local: 2 }, ind: { retail: 0.6 }, lean: 0 }),
     P('sb_equity', 'smallbiz', 'Minority & Women-Owned Business Accelerator', 'fund technical assistance, mentoring, contracting set-asides and startup capital for minority- and women-owned businesses', 'grants', { tgt: { poverty: 0.15 }, unit: 'businesses accelerated', cost: 25000, kw: 'minority women women-owned black-owned latino disadvantaged equity accelerator incubator', lean: 0.5, bases: { business: 1, base: 2 } }),
     P('sb_startup', 'smallbiz', 'Startup & Innovation Fund', 'match federal SBIR grants and co-invest with private venture funds in young technology companies', 'loans', { lv: ['state', 'nation', 'city'], tgt: { migration: 0.2, energy: 0.1 }, pot: 0.02, unit: 'startups backed', cost: 400000, kw: 'startup startups venture innovation tech technology sbir seed angel founders', ind: { tech: 0.8 }, bases: { business: 2 } }),
@@ -188,6 +196,8 @@ GR.prog = (function () {
     const area = spec.area || (base && base.area);
     const A = AREAS[area] || AREAS.gov;
     const M = MECH[spec.mech || (base && base.mech)] || MECH.services;
+    const loan = M === MECH.loans ? (TERMS[spec.terms] ? spec.terms : 'low') : null;
+    const Tm = loan && TERMS[loan];
     const full = Math.round(FX().totals(J).spend * SIZE[J.k] * ((base && base.size) || 1));
     const amt = Math.round(full * (SCALE[spec.scale] || 1));
     const ag = (spec.ag && J.F.ag.find((a) => a.k === spec.ag)) || agencyFor(J, area);
@@ -195,9 +205,10 @@ GR.prog = (function () {
     Object.keys(tgt).forEach((k) => { if (!J.F.crises[k]) delete tgt[k]; });
     return {
       k: spec.k || 'custom', name: spec.name || (base && base.name) || 'New Program', desc: spec.desc || (base && base.desc) || '', area, mech: spec.mech || (base && base.mech), ag: ag.k,
-      office: officeFor(J, area), amt, full, tgt, jobs: M.jobs * amt / 1e9, jpb: M.jobs, pot: ((base && base.pot) || 0) * Math.sqrt(amt / Math.max(1, full)),
-      lean: U.clamp(((base && base.lean) != null ? base.lean : M.lean), -1, 1), tilt: (base && base.tilt) || A.tilt, eff: ((base && base.eff) || 0) + (M.eff || 0),
-      unit: (base && base.unit) || 'people served', cost: (base && base.cost) || 5000, bases: (base && base.bases) || {}, ind: (base && base.ind) || {}, repay: M.repay || 0,
+      office: officeFor(J, area), amt, full, tgt, jobs: M.jobs * (Tm ? Tm.jobs : 1) * amt / 1e9, jpb: M.jobs * (Tm ? Tm.jobs : 1), pot: ((base && base.pot) || 0) * Math.sqrt(amt / Math.max(1, full)),
+      lean: U.clamp(((base && base.lean) != null ? base.lean : M.lean) + (Tm ? Tm.lean : 0), -1, 1), tilt: (base && base.tilt) || A.tilt, eff: ((base && base.eff) || 0) + (M.eff || 0),
+      unit: (base && base.unit) || 'people served', cost: (base && base.cost) || 5000, bases: (base && base.bases) || {}, ind: (base && base.ind) || {},
+      terms: loan, rec: Tm ? Tm.rec : 0, years: Tm ? Tm.years : 0,
     };
   }
   // Provisions that fund it: the appropriation, loan repayments, and management effects.
@@ -205,7 +216,6 @@ GR.prog = (function () {
     const M = MECH[d.mech] || MECH.services;
     const v = prov.ap[d.ag] || (prov.ap[d.ag] = {});
     v[M.part] = (v[M.part] || 0) + d.amt;
-    if (d.repay) prov.fee[`${d.name} loan repayments`] = Math.round(d.amt * d.repay);
     if (d.eff) prov.eff[d.ag] = (prov.eff[d.ag] || 0) + Math.round(d.eff * Math.sqrt(d.amt / Math.max(1, d.full)));
     prov.prog = (prov.prog || []).concat([d]);
     return prov;
@@ -213,7 +223,9 @@ GR.prog = (function () {
   function sectionText(J, d) {
     const M = MECH[d.mech] || MECH.services;
     const who = d.desc ? d.desc.replace(/\.$/, '') : `${M.verb} eligible people and organizations`;
-    return `There is established within the ${d.office} the ${d.name}, which shall ${who}. There is appropriated ${U.money(d.amt)} a year for the program${d.repay ? `; loan repayments, about ${U.money(d.amt * d.repay)} a year, return to the fund` : ''}. The ${d.office} shall report each year on the number of ${d.unit} and on results.`;
+    const Tm = d.terms && TERMS[d.terms];
+    const loans = Tm ? ` Loans are made as ${Tm.name.toLowerCase().replace(/ \(.*\)/, '')}${d.terms === 'low' ? ' at 2% interest' : ''}${d.terms === 'forgive' ? ', forgiven when the borrower meets the program\'s goals' : ''}. Repayments of principal and interest, expected to reach about ${U.money(d.amt * d.rec)} a year within ${d.years} years, are deposited in the general fund.` : '';
+    return `There is established within the ${d.office} the ${d.name}, which shall ${who}. There is appropriated ${U.money(d.amt)} a year for the program.${loans} The ${d.office} shall report each year on the number of ${d.unit} and on results.`;
   }
 
   // ---------- On the books ----------
@@ -230,8 +242,11 @@ GR.prog = (function () {
   function onApply(J, prov) {
     if (!prov.prog || !prov.prog.length) return;
     // Unfunded authorizations start at zero and wait for the budget.
-    J.F.programs = (J.F.programs || []).concat(prov.prog.map((p) => Object.assign({}, p, prov.approp ? { auth: p.amt, amt: 0, jobs: 0 } : {})));
+    J.F.programs = (J.F.programs || []).concat(prov.prog.map((p) => Object.assign({}, p, { q0: J.F.q || 0 }, prov.approp ? { auth: p.amt, amt: 0, jobs: 0 } : {})));
   }
+  // Loan repayments this year: each year's loans start repaying the next, building to amt × rec.
+  function repaid(F, p, q) { return p.rec ? p.amt * p.rec * U.clamp(((q != null ? q : F.q || 0) - (p.q0 || 0)) / 4 / p.years, 0, 1) : 0; }
+  function repayments(F) { return U.sum(F.programs || [], (p) => repaid(F, p)); }
   // What each program delivered this year.
   function report(J) { return list(J).map((p) => ({ p, served: Math.round(p.amt / Math.max(1, p.cost)) })); }
 
@@ -263,5 +278,5 @@ GR.prog = (function () {
     return 'services';
   }
 
-  return { MECH, AREAS, CATALOG, BYK, SCALE, forLevel, agencyFor, officeFor, design, provFor, sectionText, list, strength, mitigation, potBoost, jobsK, onApply, report, match, mechOf };
+  return { TERMS, repaid, repayments, MECH, AREAS, CATALOG, BYK, SCALE, forLevel, agencyFor, officeFor, design, provFor, sectionText, list, strength, mitigation, potBoost, jobsK, onApply, report, match, mechOf };
 })();

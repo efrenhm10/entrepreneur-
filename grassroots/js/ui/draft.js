@@ -28,7 +28,7 @@ GR.uiDraft = (function () {
     if (!d || d.jur !== jur) d = ui.sel.gd = { jur, idea: '', read: null, issue: null, appr: null, scale: 'standard', pay: null, riders: {}, title: '' };
     return d;
   }
-  const key = (d) => JSON.stringify([d.issue, d.appr, d.scale, d.pay, d.riders, d.title, d.idea && d.read ? d.idea : '']);
+  const key = (d) => JSON.stringify([d.issue, d.appr, d.scale, d.pay, d.riders, d.title, d.dest, d.terms, d.custom, d.idea && d.read ? d.idea : '']);
 
   function render(s) {
     const jur = G().myJur(s);
@@ -87,6 +87,9 @@ GR.uiDraft = (function () {
   function customRow(s, d) {
     const h = d.read && d.read.hints && d.read.hints.custom;
     if (!h || !GR.prog) return '';
+    // An idea about raising money is not a program.
+    const top = d.read.cands[0];
+    if (top && /^(tax:|rev:)/.test(top.appr) && /\b(tax|taxes|fee|fees|toll|tolls|revenue|deficit)\b/i.test(d.idea || '')) return '';
     const area = h.area || Object.keys(GR.prog.AREAS).find((k) => GR.prog.AREAS[k].ag[d.jur]);
     const id = `custom:${area}`;
     return `<button class="pickrow ${d.appr && d.appr.startsWith('custom:') ? 'on' : ''}" data-act="gdcustom" data-a="${esc(area)}"><span class="grow"><b>✨ Write it as a new program of your own</b><br><span class="tiny muted">“${esc(h.name)}” · you decide what it does, how the money moves, who runs it and what it targets</span></span></button>`;
@@ -100,11 +103,19 @@ GR.uiDraft = (function () {
     const c = D().compile(s, d.jur, d);
     if (!c) return '';
     const a = c.a;
-    const scales = D().SCALES.map((x) => { const cx = D().compile(s, d.jur, Object.assign({}, d, { scale: x.k, pay: 'none' })); return `<button class="pickrow ${d.scale === x.k ? 'on' : ''}" data-act="gdscale" data-a="${x.k}"><span class="grow"><b>${x.name}</b> <span class="tiny muted">${esc(x.desc)}</span></span><span class="small num">${cx.cost > 0 ? U.money(cx.cost) + '/yr' : cx.cost < 0 ? 'saves ' + U.money(-cx.cost) : a.kind === 'law' ? (x.k === 'major' ? 'two steps' : 'one step') : ''}</span></button>`; }).join('');
+    const scales = D().SCALES.map((x) => { const cx = D().compile(s, d.jur, Object.assign({}, d, { scale: x.k, pay: 'none' })); return `<button class="pickrow ${d.scale === x.k ? 'on' : ''}" data-act="gdscale" data-a="${x.k}"><span class="grow"><b>${x.name}</b> <span class="tiny muted">${esc(x.desc)}</span></span><span class="small num">${cx.cost > 0 ? U.money(cx.cost) + '/yr' : cx.cost < 0 ? (['tax', 'rev'].includes(a.kind) ? 'raises ' : 'saves ') + U.money(-cx.cost) + '/yr' : a.kind === 'law' ? (x.k === 'major' ? 'two steps' : 'one step') : ''}</span></button>`; }).join('');
     const pays = D().payOptions(s, d.jur, D().compile(s, d.jur, Object.assign({}, d, { pay: 'none' })).cost, a);
     const showAll = ui.sel.gdpayAll || pays.findIndex((p) => p.k === d.pay) >= 6;
     const payBody = pays.length ? pays.filter((p, i) => showAll || i < 6).map((p) => `<button class="pickrow ${d.pay === p.k ? 'on' : ''}" data-act="gdpay" data-a="${esc(p.k)}"><span class="grow"><b>${esc(p.name)}</b><br><span class="tiny muted">${esc(p.desc)}</span></span></button>`).join('') + (pays.length > 6 && !showAll ? ui.btn(`Show all ${pays.length} options`, 'gdpayall', '', 'bgr sm') : '')
-      : `<p class="small">${c.cost < 0 ? `This bill saves about ${U.money(-c.cost)} a year. The savings go to the general fund.` : 'This bill has no direct cost, so there is nothing to pay for. Its fight is political, not fiscal.'}</p>`;
+      : `<p class="small">${c.cost < 0 ? `This bill ${['tax', 'rev'].includes(a.kind) ? 'raises' : 'saves'} about ${U.money(-c.cost)} a year for the general fund.` : 'This bill has no direct cost, so there is nothing to pay for. Its fight is political, not fiscal.'}</p>`;
+    // Revenue bills choose where the money goes instead of how to pay.
+    const dests = D().destOptions(s, d.jur, a);
+    const raised = dests.length ? -D().compile(s, d.jur, Object.assign({}, d, { dest: 'gf', pay: 'none' })).cost : 0;
+    const gapNow = Math.max(0, -GR.fisc.totals(J0(s, d)).bal);
+    const destBody = dests.length ? `<p class="small">This bill raises about <b class="good">${U.money(Math.max(0, raised))} a year</b>${J0(s, d).k === 'nation' ? `, against a deficit of ${U.money(gapNow)}` : gapNow > 0 ? `, against a ${U.money(gapNow)} gap in this year's budget` : '. The budget balances today, so in the general fund it builds a cushion for leaner years'}.</p>${dests.map((o) => `<button class="pickrow ${(d.dest || 'gf') === o.k ? 'on' : ''}" data-act="gddest" data-a="${esc(o.k)}"><span class="grow"><b>${esc(o.name)}</b><br><span class="tiny muted">${esc(o.desc)}</span></span></button>`).join('')}` : '';
+    // Loan funds: the terms decide how much comes back.
+    const ds = a.design;
+    const termsStep = () => (ds && ds.mech === 'loans' ? step(n++, 'Loan terms', Object.entries(GR.prog.TERMS).map(([k, T]) => `<button class="pickrow ${(ds.terms || 'low') === k ? 'on' : ''}" data-act="gdterms" data-a="${k}"><span class="grow"><b>${esc(T.name)}</b> <span class="tiny muted">${esc(T.desc)}</span><br><span class="tiny">Repayments reach ~${U.money(ds.amt * T.rec)}/yr by year ${T.years} · long-run net ${T.rec >= 1 ? `<span class="good">earns ${U.money(ds.amt * (T.rec - 1))}/yr</span>` : `cost ${U.money(ds.amt * (1 - T.rec))}/yr`}</span></span></button>`).join(''), true) : '');
     const bk = G().myBody(s);
     const capital = ['capex', 'p3'].includes(a.kind) || !!a.capital;
     const members = bk ? W().members(s, bk).filter((p) => !p.isPlayer).sort((x, y) => G().rel(s, y.id) - G().rel(s, x.id)).slice(0, 80) : [];
@@ -116,8 +127,11 @@ GR.uiDraft = (function () {
       + (bk ? `<div class="pickrow" style="cursor:default"><span class="grow"><b>A project for a colleague</b><br><span class="tiny muted">Put a project in a wavering member's district to win their vote.</span></span><select class="input" style="max-width:220px" data-ch="gdear"><option value="">No one</option>${members.map((p) => `<option value="${p.id}" ${R.ear === p.id ? 'selected' : ''}>${esc(W().fullName(p))} (${p.party}) · ${G().relLabel(G().rel(s, p.id))}</option>`).join('')}</select></div>` : '');
     const name = `<input class="input" id="gdtitle" placeholder="${esc(c.autoTitle)}" value="${esc(d.title)}" data-in="gdtitle"><p class="tiny muted" style="margin-top:4px">Leave blank to use the drafting office's title. Press Update text after typing.</p>${ui.btn('Update text', 'rerender', '', 'bgr sm')}`;
     const designStep = a.kind === 'custom' ? step(n++, 'Design your program', designer(s, d, c)) : a.kind === 'prog' ? step(n++, 'The program', progCard(s, d, c)) : '';
-    return designStep + step(n, 'How big', scales, true) + step(n + 1, 'Paying for it', payBody, !pays.length || !!d.pay) + step(n + 2, 'Extra sections', extras, true) + step(n + 3, 'Name it', name, true);
+    const money = () => (dests.length ? step(n + 1, 'Where the money goes', destBody, true) : step(n + 1, 'Paying for it', payBody, !pays.length || !!d.pay));
+    return designStep + termsStep() + step(n, 'How big', scales, true) + money() + step(n + 2, 'Extra sections', extras, true) + step(n + 3, 'Name it', name, true);
   }
+
+  const J0 = (s, d) => s.jur[d.jur];
 
   // What a library program does, and what it will deliver.
   function progCard(s, d, c) {
@@ -143,7 +157,7 @@ GR.uiDraft = (function () {
       <div class="tiny muted" style="margin:10px 0 4px">Policy area</div>
       <select class="input" data-ch="gdcarea">${areas.map(([k, A]) => `<option value="${k}" ${c.a.area === k ? 'selected' : ''}>${esc(A.name)}</option>`).join('')}</select>
       <div class="tiny muted" style="margin:10px 0 4px">How the money moves</div>
-      ${Object.entries(GR.prog.MECH).map(([k, M]) => `<button class="pickrow ${(cu.mech || 'services') === k ? 'on' : ''}" data-act="gdcmech" data-a="${k}"><span class="grow"><b>${esc(M.name)}</b> <span class="tiny muted">${esc({ grants: 'Competitive awards to nonprofits, businesses or local governments.', services: 'The agency hires staff and delivers the service itself.', payments: 'Stipends, vouchers or scholarships paid to people.', loans: 'Low-interest loans; repayments are lent out again.', capital: 'Build or repair facilities.', credit: 'A refundable credit against taxes.' }[k])}</span></span></button>`).join('')}
+      ${Object.entries(GR.prog.MECH).map(([k, M]) => `<button class="pickrow ${(cu.mech || 'services') === k ? 'on' : ''}" data-act="gdcmech" data-a="${k}"><span class="grow"><b>${esc(M.name)}</b> <span class="tiny muted">${esc({ grants: 'Competitive awards to nonprofits, businesses or local governments.', services: 'The agency hires staff and delivers the service itself.', payments: 'Stipends, vouchers or scholarships paid to people.', loans: 'Loans that are paid back over time; you set the terms next.', capital: 'Build or repair facilities.', credit: 'A refundable credit against taxes.' }[k])}</span></span></button>`).join('')}
       <div class="tiny muted" style="margin:10px 0 4px">Run by</div>
       <select class="input" data-ch="gdcag">${J.F.ag.map((g) => `<option value="${g.k}" ${x.ag === g.k ? 'selected' : ''}>${esc(g.name && g.name !== g.abbr ? g.name + ' (' + g.abbr + ')' : g.abbr)}</option>`).join('')}</select>
       <div class="tiny muted" style="margin:10px 0 4px">Problems it targets (pick up to three)</div>
@@ -190,7 +204,8 @@ GR.uiDraft = (function () {
     const crisisK = GR.CRISIS_TYPES[d.issue] ? d.issue : null;
     const score = ui.panel('Drafting office scorecard', `<div class="ind">
         ${c.a.design ? ui.stat('Appropriation', U.money(c.a.design.amt) + '/yr') : ''}
-        ${ui.stat(c.a.design && c.cost < c.a.design.amt * 0.9 && c.cost > 0 ? 'Net cost (after federal match)' : 'First-year cost', c.cost > 0 ? U.money(c.cost) : c.cost < 0 ? `<span class="good">saves ${U.money(-c.cost)}</span>` : '—')}
+        ${ui.stat(c.a.design && c.cost < c.a.design.amt * 0.9 && c.cost > 0 ? 'Net cost (after federal match)' : c.cost < 0 && ['tax', 'rev'].includes(c.a.kind) ? 'Revenue a year' : 'First-year cost', c.cost > 0 ? U.money(c.cost) : c.cost < 0 ? `<span class="good">${['tax', 'rev'].includes(c.a.kind) ? '+' : 'saves '}${U.money(-c.cost)}</span>` : '—')}
+        ${c.a.design && c.a.design.rec ? ui.stat(`Net cost by year ${c.a.design.years}`, (() => { const v = c.cost - c.a.design.amt * c.a.design.rec; return v > 0 ? U.money(v) : `<span class="good">earns ${U.money(-v)}</span>`; })()) : ''}
         ${ui.stat('After offsets', `<span class="${net > c.cost * 0.2 && net > 0 ? 'bad' : 'good'}">${net > 0 ? U.money(net) : net < 0 ? '+' + U.money(-net) : 'paid for'}</span>`)}
         ${ui.stat('Per resident', c.cost ? '$' + U.round(Math.abs(c.cost) / pop, 2) : '—')}
         ${ui.stat('Your district', `<span class="${myC.di >= 0 ? 'good' : 'bad'}">${myC.di >= 0 ? '+' : ''}${myC.di.toFixed(2)}</span>`)}
@@ -251,6 +266,8 @@ GR.uiDraft = (function () {
   A('gdappr', (el) => { const d = draft(ui.s); d.appr = el.value || null; d.read = null; reset(d); });
   A('gdscale', (el, a) => { const d = draft(ui.s); d.scale = a; d.pay = d.pay && d.pay.startsWith('tax:') || d.pay && d.pay.startsWith('cut:') ? d.pay : d.pay; d.an = null; });
   A('gdpayall', () => { ui.sel.gdpayAll = true; });
+  A('gddest', (el, a) => { const d = draft(ui.s); d.dest = a; d.an = null; });
+  A('gdterms', (el, a) => { const d = draft(ui.s); d.terms = a; reset(d); });
   A('gdpay', (el, a) => { const d = draft(ui.s); d.pay = a; d.an = null; });
   A('gdrider', (el, a) => { const d = draft(ui.s); d.riders = Object.assign({}, d.riders, { [a]: el.checked }); d.an = null; });
   A('gdear', (el) => { const d = draft(ui.s); d.riders = Object.assign({}, d.riders, { ear: el.value || null }); d.an = null; });

@@ -23,13 +23,66 @@ GR.fisc = (function () {
     prop: { name: 'Property tax', unit: 'mills', sr: 0.45, eti: 0.1, lean: 0, min: 0, max: 60 },
     carbon: { name: 'Carbon price (cap-and-trade)', unit: '$/t', sr: 0.5, eti: 0, lean: 1, min: 0, max: 250 },
     sev: { name: 'Severance tax (oil, gas, minerals)', unit: 'pp', sr: 0.3, eti: 0.1, lean: 0.6, min: 0, max: 25 },
+    // Mostly paid by visitors: hotel rooms and short-term rentals.
+    lodge: { name: 'Hotel & visitor tax', unit: 'pp', sr: 0.1, eti: 0.15, lean: 0.2, min: 0, max: 20, step: 0.5, kw: 'hotel hotels motel motels visitor visitors tourist tourists tourism lodging occupancy airbnb short-term rentals rental bed room rooms' },
+    sin: { name: 'Sin taxes (tobacco, alcohol, cannabis)', unit: 'pp', sr: 0.45, eti: 0.4, lean: 0.3, min: 0, max: 60, step: 1, kw: 'sin tobacco cigarette cigarettes vape vaping alcohol liquor beer wine spirits cannabis marijuana soda sugary excise' },
+    fuel: { name: 'Gas tax', unit: '¢/gal', sr: 0.6, eti: 0, lean: 0.1, min: 0, max: 100, step: 1, kw: 'gas gasoline fuel diesel pump motor' },
   };
   const LEVEL_TAXES = {
     nation: ['low', 'mid', 'high', 'corp', 'capg', 'payroll', 'carbon'],
-    state: ['low', 'mid', 'high', 'corp', 'sales', 'carbon', 'sev'],
-    city: ['prop', 'sales'],
+    state: ['low', 'mid', 'high', 'corp', 'sales', 'carbon', 'sev', 'lodge', 'sin', 'fuel'],
+    city: ['prop', 'sales', 'lodge'],
     school: ['prop'],
   };
+  // Visitor economies (lodging spending relative to the national average), dedicated state lodging
+  // taxes and state gas taxes (cents a gallon), roughly as they stand.
+  const TOURISM = { HI: 4.5, NV: 4, FL: 1.8, DC: 1.6, WY: 1.4, VT: 1.4, AK: 1.4, LA: 1.3, CO: 1.3, ME: 1.3, MT: 1.3, TN: 1.2, AZ: 1.2, NY: 1.2, SC: 1.2, UT: 1.2, CA: 1.1, NM: 1.1 };
+  const LODGE_ST = { HI: 10.25, CT: 15, VT: 9, ME: 9, NH: 8.5, DE: 8, PA: 6, MA: 5.7, IA: 5, NJ: 5, RI: 5, WY: 5, MT: 4, SC: 2, ID: 2, KY: 1 };
+  const FUEL_ST = { CA: 61, PA: 58, IL: 47, WA: 49, MD: 47, NJ: 42, OH: 38.5, NC: 40, IN: 35, UT: 36, MI: 31, NY: 33, GA: 33, FL: 37, VA: 30, TX: 20, AZ: 18, HI: 18, MS: 18, NM: 17, AK: 9, MO: 27, CO: 28, OR: 40, NV: 23, TN: 27, SC: 28, AL: 29, LA: 20, OK: 20, MN: 29, WI: 31, KY: 26, NE: 31, IA: 30, KS: 24, AR: 25, WV: 36, CT: 25, MA: 24, ME: 30, NH: 22, VT: 31, RI: 37, DE: 23, ID: 33, MT: 33, WY: 24, SD: 30, ND: 23, DC: 33 };
+  function extraTaxes(F, lvl, ab, pop, gdp) {
+    const tour = TOURISM[ab] || 1;
+    if (lvl === 'state') {
+      Object.assign(F.tax, { lodge: LODGE_ST[ab] || 0, sin: 8, fuel: FUEL_ST[ab] || 30 });
+      Object.assign(F.base, { lodge: gdp * 0.006 * tour, sin: gdp * 0.012, fuel: pop * 420 });
+    } else if (lvl === 'city') {
+      Object.assign(F.tax, { lodge: pop >= 300000 ? 4 : pop >= 100000 ? 2.5 : 0 });
+      Object.assign(F.base, { lodge: gdp * 0.012 * tour });
+    }
+  }
+  // Saves from before these taxes existed.
+  function upgrade(s) {
+    Object.values(s.jur || {}).forEach((J) => {
+      const F = J && J.F;
+      if (!F || (F.lvl !== 'state' && F.lvl !== 'city') || F.tax.lodge != null) return;
+      const r0 = totals(J).rev;
+      extraTaxes(F, F.lvl, s.home.state, J.pop || 1e5, F.mac.gdp0);
+      ['lodge', 'sin', 'fuel'].forEach((k) => { if (F.tax[k] != null) F.tax0[k] = F.tax[k]; });
+      // Revenue the state already collected under "other": move it, don't double it.
+      const dr = (totals(J).rev - r0) / (F.mac.gdp / F.mac.gdp0);
+      F.otherAdj = (F.otherAdj || 0) - dr; F.otherAdj0 = (F.otherAdj0 || 0) - dr;
+    });
+  }
+  // Budget pressure, 0 … 1: how loudly the deficit is driving politics. States and cities must
+  // balance, so any gap counts, more so once the rainy-day fund runs low; Washington only
+  // notices deficits well beyond its usual.
+  function pressure(J) {
+    const F = J.F;
+    if (!F) return 0;
+    const t = totals(J);
+    const gap = -t.bal / Math.max(1, t.spend);
+    if (F.lvl === 'nation') return U.clamp((gap - 0.22) / 0.25, 0, 1);
+    const res = (F.reserve || 0) / Math.max(1, t.spend);
+    return U.clamp((gap - 0.004) / 0.04 + (gap > 0 && res < 0.04 ? 0.25 : 0), 0, 1);
+  }
+  // Revenue from one more point (or mill, or cent) of a tax, even one not levied yet.
+  function perPoint(J, k) {
+    const F = J.F;
+    if (F.tax[k] == null) return null;
+    if (F.tax[k] > 0) { const r = revenue(J)[k]; if (r && r.amt > 0) return r.amt / F.tax[k]; }
+    if (k === 'carbon') return emissions(F);
+    return F.base[k] * (F.mac.gdp / F.mac.gdp0) / (k === 'prop' ? 1000 : 100);
+  }
+
   const LEAK = { nation: 1, state: 0.55, city: 0.35, school: 0.3 };
 
   // ---------- Entitlements ----------
@@ -201,6 +254,7 @@ GR.fisc = (function () {
         set('classsize', { cap: 24 }, total * 0.04);
       }
     }
+    extraTaxes(F, lvl, ab, pop, gdp);
     F.tax0 = Object.assign({}, F.tax);
     // Balance the starting budget with fees and other revenue (federal: a ~$1.8T deficit).
     const t = totals(J);
@@ -343,6 +397,8 @@ GR.fisc = (function () {
     if (k === 'carbon') return 1;
     if (k === 'sales') return 1 - 0.02 * (r - r0);
     if (k === 'prop') return 1 - 0.004 * (r - r0);
+    if (k === 'sin') return Math.max(0.3, 1 - 0.008 * (r - r0));
+    if (k === 'fuel') return Math.max(0.6, 1 - 0.0015 * (r - r0));
     return Math.pow(Math.max(1, 100 - r) / Math.max(1, 100 - r0), T.eti);
   }
 
@@ -360,6 +416,7 @@ GR.fisc = (function () {
     const compliance = irs ? 1 + U.clamp((agRatio(F, irs, 'all') - 1) * 0.04, -0.03, 0.05) : 1;
     LEVEL_TAXES[F.lvl].forEach((k) => {
       const T = TAXES[k];
+      if (F.tax[k] == null) return;
       let base = F.base[k] * N;
       if (k === 'carbon') { lines[k] = { name: T.name, amt: emissions(F) * F.tax.carbon * (F.lvl === 'nation' ? 1 : 1) }; return; }
       if (k === 'payroll' && F.ent.ss) base *= U.clamp(1 + 0.12 * Math.log(F.ent.ss.p.cap / 184500), 0.9, 1.16);
@@ -371,6 +428,9 @@ GR.fisc = (function () {
       lines[k] = { name: T.name, amt };
     });
     Object.entries(F.fees || {}).forEach(([name, v]) => { lines['fee:' + name] = { name, amt: v * N }; });
+    // Loan funds: repayments build up as the first loans come due.
+    const lr = GR.prog ? GR.prog.repayments(F) : 0;
+    if (lr) lines.loanrepay = { name: 'Loan fund repayments', amt: lr };
     // Tax abatements granted to companies you recruited.
     const ab = GR.develop && J.dev ? GR.develop.abated(J) : 0;
     if (ab > 0) lines.abate = { name: 'Business tax abatements', amt: -(F.tax.corp != null ? ab * F.tax.corp / 100 * 0.12 : ab * (F.tax.prop || 10) / 1000 * 1.5) };
@@ -384,7 +444,7 @@ GR.fisc = (function () {
       const dot = F.ag.find((a) => a.k === 'dot'), k12 = F.ag.find((a) => a.k === 'k12'), hs = F.ag.find((a) => a.k === 'hs');
       const fmapEff = F.fmap + (0.9 - F.fmap) * U.clamp((F.ent.medicaid.p.fpl - 45) / 93, 0, 1) * 0.3;
       lines.fed = { name: 'Federal aid (Medicaid FMAP, highways, education)', amt: ec.medicaid.cost * fmapEff + (dot ? dot.capex * 0.4 : 0) + (k12 ? k12.opex * 0.1 : 0) + (hs ? hs.opex * 0.55 : 0) + F.total0 * 0.04 * N };
-      lines.excise = { name: 'Excise, franchise & insurance taxes', amt: F.mac.gdp * 0.011 };
+      lines.excise = { name: 'Excise, franchise & insurance taxes', amt: F.mac.gdp * (F.tax.sin != null ? 0.01 : 0.011) };
       lines.other = { name: 'Fees, lottery & other revenue', amt: (F.otherAdj || 0) * N };
     } else if (F.lvl === 'city') {
       lines.aid = { name: 'State aid', amt: F.total0 * 0.18 * N };
@@ -738,5 +798,5 @@ GR.fisc = (function () {
     return { draw, cut: f, amt: base * f };
   }
 
-  return { balanceRule, TAXES, LEVEL_TAXES, ENTS, LADDER, ratingOf, init, totals, revenue, entCosts, quarter, apply, analyze, taxDist, cloneJ, mitigation, dissatisfaction, agRatio, serviceAdj, emissions, fmtB, ratingScore };
+  return { balanceRule, TAXES, LEVEL_TAXES, perPoint, upgrade, pressure, ENTS, LADDER, ratingOf, init, totals, revenue, entCosts, quarter, apply, analyze, taxDist, cloneJ, mitigation, dissatisfaction, agRatio, serviceAdj, emissions, fmtB, ratingScore };
 })();

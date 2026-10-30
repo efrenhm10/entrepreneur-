@@ -105,7 +105,7 @@ GR.power = (function () {
     if (p.growth) t += p.growth * U.clamp((g - 2) * 3, -10, 10) - p.growth * du * 3;
     if (p.taxes) {
       let dt = 0;
-      Object.entries(F.tax).forEach(([k, v]) => { const T = GR.fisc.TAXES[k]; if (T && F.tax0[k] != null) dt += (v - F.tax0[k]) * (T.unit === '$/t' ? 0.05 : T.unit === 'mills' ? 0.5 : 1); });
+      Object.entries(F.tax).forEach(([k, v]) => { const T = GR.fisc.TAXES[k]; if (T && F.tax0[k] != null) dt += (v - F.tax0[k]) * (T.unit === '$/t' ? 0.05 : T.unit === 'mills' ? 0.5 : T.unit === '¢/gal' ? 0.1 : k === 'lodge' ? 0.3 : 1); });
       t -= p.taxes * U.clamp(dt * 2.5, -12, 12);
     }
     if (p.reg) t -= p.reg * U.clamp(U.sum(GR.INDUSTRIES, (x) => (F.reg[x.k] || 0) * x.share) * 8, -8, 10);
