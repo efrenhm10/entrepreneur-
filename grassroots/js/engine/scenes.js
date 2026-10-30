@@ -90,10 +90,10 @@ GR.scenes = (function () {
       });
       if (fx.cost) {
         const amt = fx.cost * m * GR.fisc.totals(J).spend;
-        pay(J, amt);
+        const how = pay(J, amt);
         chips.push({ t: `${amt >= 0 ? 'Cost' : 'Revenue'} ${U.money(Math.abs(amt))}`, good: amt < 0 });
         // A balanced budget means it has to come from somewhere: ask where.
-        if (amt > 0 && F.lvl !== 'nation' && !o.noAsk) payFrom(s, J, amt, o.what);
+        if (amt > 0 && F.lvl !== 'nation' && !o.noAsk) payFrom(s, J, amt, o.what, how);
       }
       if (fx.gap) { F.mac.gap += fx.gap * m; chip('Economy', fx.gap * m * 10, true, 1); }
       if (fx.jobs && GR.develop) { const k = fx.jobs * m * (J.k === 'city' ? 0.5 : 1); GR.develop.addJobs(J, k); chips.push({ t: `Jobs +${U.num(Math.round(k * 1000))}`, good: true }); }
@@ -105,24 +105,36 @@ GR.scenes = (function () {
   }
   // One-time spending (positive) or revenue (negative) for a government.
   // A cost that came up mid-year: it is fronted from the rainy-day fund, then you decide where it really comes from.
-  function payFrom(s, J, amt, what) {
+  function payFrom(s, J, amt, what, how) {
     const F = J.F;
+    how = how || { sur: 0, res: amt, debt: 0 };
     const big = F.ag.filter((a) => a.opex > amt * 5).sort((a, b) => b.opex - a.opex).slice(0, 2);
     const cap = U.sum(F.ag, (a) => a.capex);
+    const surplus = Math.max(0, GR.fisc.totals(J).bal - (F.owed || 0) + how.sur);
+    const fronted = [how.sur ? `${U.money(how.sur)} from this year's surplus` : '', how.res ? `${U.money(how.res)} from the rainy-day fund` : '', how.debt ? `${U.money(how.debt)} borrowed` : ''].filter(Boolean).join(', ');
+    const args = { jur: J.k, amt, how };
     post(s, { jur: J.k, kicker: `Budget office · ${J.name}`, title: `Paying for it: ${U.money(amt)}`,
-      text: `${what ? `“${what}” costs` : 'That decision costs'} ${U.money(amt)} this year, and the budget must balance. For now it has been fronted from the rainy-day fund (${U.money(F.reserve)} left). Where should it really come from?`,
+      text: `${what ? `“${what}” costs` : 'That decision costs'} ${U.money(amt)} this year, and the budget must balance. For now it is covered by ${fronted}. This year's general fund is running ${surplus > 0 ? `a ${U.money(surplus)} surplus` : 'no surplus'}; the rainy-day fund holds ${U.money(F.reserve)}. Where should it come from?`,
       choices: [
-        { label: 'Leave it on the rainy-day fund', fx: {}, res: 'The reserve covers it. Rating agencies watch how fast it is shrinking.', run: 'payKeep', args: { jur: J.k, amt } },
-        { label: 'Agencies absorb it: small cuts across the board', fx: { pw: { labor: -2 } }, run: 'payAbsorb', args: { jur: J.k, amt } },
-        cap > amt * 3 ? { label: 'Delay construction projects to cover it', fx: { pw: { business: -1 } }, run: 'payDelay', args: { jur: J.k, amt } } : null,
-      ].concat(big.map((a) => ({ label: `Take it out of ${a.abbr}'s budget`, fx: {}, run: 'payAg', args: { jur: J.k, amt, ag: a.k } }))).filter(Boolean) });
+        surplus >= amt * 0.999 ? { label: `Cover it from this year's surplus (${U.money(surplus)} available)`, fx: {}, run: 'paySurplus', args } : null,
+        F.reserve + how.res >= amt * 0.999 ? { label: `Take it from the rainy-day fund (${U.money(F.reserve + how.res)})`, fx: {}, run: 'payReserve', args } : null,
+        how.debt > 0 && surplus < amt && F.reserve < 1 ? { label: 'Borrow it (rating agencies take note)', fx: {}, run: 'payKeep', args, res: 'It goes on the debt.' } : null,
+        { label: 'Agencies absorb it: small cuts across the board', fx: { pw: { labor: -2 } }, run: 'payAbsorb', args },
+        cap > amt * 3 ? { label: 'Delay construction projects to cover it', fx: { pw: { business: -1 } }, run: 'payDelay', args } : null,
+      ].concat(big.map((a) => ({ label: `Take it out of the ${a.abbr.replace(/\.$/, '')} budget`, fx: {}, run: 'payAg', args: Object.assign({ ag: a.k }, args) }))).filter(Boolean) });
   }
 
+  // An unplanned cost: this year's surplus (the general fund) first, then the rainy-day fund, then borrowing.
   function pay(J, amt) {
     const F = J.F;
-    if (F.lvl === 'nation') { F.debt += amt; return; }
-    F.reserve -= amt;
-    if (F.reserve < 0) { F.debt += -F.reserve; F.reserve = 0; }
+    const how = { sur: 0, res: 0, debt: 0 };
+    if (F.lvl === 'nation') { F.debt += amt; how.debt = amt; return how; }
+    if (amt < 0) { F.reserve -= amt; return how; }
+    const room = Math.max(0, GR.fisc.totals(J).bal - (F.owed || 0));
+    how.sur = Math.min(amt, room); F.owed = (F.owed || 0) + how.sur;
+    how.res = Math.min(amt - how.sur, Math.max(0, F.reserve)); F.reserve -= how.res;
+    how.debt = amt - how.sur - how.res; F.debt += how.debt;
+    return how;
   }
 
   // ---------- The queue ----------
@@ -187,11 +199,14 @@ GR.scenes = (function () {
   // ---------- Named outcomes ----------
   const RUN = {};
   // Where a mid-year cost comes from. The fund fronted it; these pay the fund back.
-  const refill = (J, amt) => { J.F.reserve += amt; };
+  // Undo how the cost was fronted (surplus, reserve, borrowing) once it is paid another way.
+  const refill = (J, amt, how) => { const F = J.F; how = how || { sur: 0, res: amt, debt: 0 }; F.owed = Math.max(0, (F.owed || 0) - how.sur); F.reserve += how.res; F.debt = Math.max(0, F.debt - how.debt); };
   RUN.payKeep = () => {};
-  RUN.payAbsorb = (s, a) => { const J = s.jur[a.jur]; const op = U.sum(J.F.ag, (x) => x.opex); J.F.ag.forEach((x) => { x.opex -= a.amt * x.opex / Math.max(1, op); }); refill(J, a.amt); return `Agencies trim ${(a.amt / op * 100).toFixed(2)}% from operations to cover it. The rainy-day fund is made whole.`; };
-  RUN.payDelay = (s, a) => { const J = s.jur[a.jur]; const cap = U.sum(J.F.ag, (x) => x.capex); J.F.ag.forEach((x) => { x.capex -= a.amt * x.capex / Math.max(1, cap); }); refill(J, a.amt); return `Projects slip to cover it (${(a.amt / cap * 100).toFixed(1)}% of capital spending). Roads and buildings wait a little longer.`; };
-  RUN.payAg = (s, a) => { const J = s.jur[a.jur]; const x = J.F.ag.find((g) => g.k === a.ag); if (!x) return; x.opex -= a.amt; refill(J, a.amt); GR.sim.news(s, `${x.abbr} absorbs a ${U.money(a.amt)} cut to cover an unplanned cost.`, 'gov'); return `${x.abbr} gives up ${U.money(a.amt)} (${(a.amt / (x.opex + a.amt) * 100).toFixed(1)}% of its operations). Its director is not pleased.`; };
+  RUN.paySurplus = (s, a) => { const F = s.jur[a.jur].F; const h = a.how || { sur: 0, res: a.amt, debt: 0 }; F.reserve += h.res; F.debt = Math.max(0, F.debt - h.debt); F.owed = (F.owed || 0) + h.res + h.debt; return 'It comes out of this year\'s surplus. The rainy-day fund stays where it was.'; };
+  RUN.payReserve = (s, a) => { const F = s.jur[a.jur].F; const h = a.how || { sur: 0, res: a.amt, debt: 0 }; const x = h.sur + h.debt; F.owed = Math.max(0, (F.owed || 0) - h.sur); F.debt = Math.max(0, F.debt - h.debt); F.reserve -= x; return 'The rainy-day fund covers it.'; };
+  RUN.payAbsorb = (s, a) => { const J = s.jur[a.jur]; const op = U.sum(J.F.ag, (x) => x.opex); J.F.ag.forEach((x) => { x.opex -= a.amt * x.opex / Math.max(1, op); }); refill(J, a.amt, a.how); return `Agencies trim ${(a.amt / op * 100).toFixed(2)}% from operations to cover it. The rainy-day fund is made whole.`; };
+  RUN.payDelay = (s, a) => { const J = s.jur[a.jur]; const cap = U.sum(J.F.ag, (x) => x.capex); J.F.ag.forEach((x) => { x.capex -= a.amt * x.capex / Math.max(1, cap); }); refill(J, a.amt, a.how); return `Projects slip to cover it (${(a.amt / cap * 100).toFixed(1)}% of capital spending). Roads and buildings wait a little longer.`; };
+  RUN.payAg = (s, a) => { const J = s.jur[a.jur]; const x = J.F.ag.find((g) => g.k === a.ag); if (!x) return; x.opex -= a.amt; refill(J, a.amt, a.how); GR.sim.news(s, `${x.abbr} absorbs a ${U.money(a.amt)} cut to cover an unplanned cost.`, 'gov'); return `${x.abbr} gives up ${U.money(a.amt)} (${(a.amt / (x.opex + a.amt) * 100).toFixed(1)}% of its operations). Its director is not pleased.`; };
   RUN.recallVote = (s, a) => {
     const me = s.pols.me;
     if (!me.seat || me.seat !== a.seat) return;

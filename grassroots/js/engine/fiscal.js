@@ -627,7 +627,12 @@ GR.fisc = (function () {
     const t2 = totals(J);
     if (F.lvl === 'nation') F.debt = Math.max(0, F.debt - t2.bal / 4);
     else {
-      F.reserve += t2.bal / 4;
+      // Unplanned costs charged to this year's surplus come out of it before anything is banked.
+      let add = t2.bal / 4;
+      if (F.owed > 0) {
+        if (add > 0) { const x = Math.min(F.owed, add); F.owed -= x; add -= x; } else { F.reserve -= F.owed; F.owed = 0; }
+      }
+      F.reserve += add;
       // Rainy-day funds are capped by law; overflow pays down debt.
       if (F.lvl !== 'nation' && F.reserve > t2.spend * 0.2) { const over = F.reserve - t2.spend * 0.2; F.reserve -= over; F.debt = Math.max(0, F.debt - over); }
       F.debt = Math.max(0, F.debt + (t2.bond - t2.principal) / 4);

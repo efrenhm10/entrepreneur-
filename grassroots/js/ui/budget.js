@@ -85,7 +85,7 @@ GR.uiBudget = (function () {
     // This fiscal year as it actually runs: revenue and spending move every quarter with the economy.
     const fy = L().fiscalYear(s, J.k);
     const tt = GR.fisc.totals(J);
-    const now = `<div class="row between small" style="margin-bottom:8px;padding:6px 8px;background:var(--panel-2);border-radius:4px"><span><b>FY${fy}, now running</b> · revenue ${U.money(tt.rev)} · spending ${U.money(tt.spend)}</span><span class="${tt.bal >= 0 ? 'good' : 'bad'}">${tt.bal >= 0 ? `on track for a ${U.money(tt.bal)} surplus` : `on track for a ${U.money(-tt.bal)} shortfall`}</span></div>`;
+    const now = `<div class="row between small" style="margin-bottom:8px;padding:6px 8px;background:var(--panel-2);border-radius:4px"><span><b>FY${fy}, now running</b> · revenue ${U.money(tt.rev)} · spending ${U.money(tt.spend)}</span><span class="${tt.bal >= 0 ? 'good' : 'bad'}">${tt.bal >= 0 ? `on track for a ${U.money(tt.bal)} surplus` : `on track for a ${U.money(-tt.bal)} shortfall`}${J.F.owed > 0 ? `<span class="tiny muted"> · ${U.money(J.F.owed)} of it already spent on unplanned costs</span>` : ''}</span></div>`;
     // The headline while you work: what is left to spend, falling as you add.
     const head = bal ? `<div class="budhead ${bal.gap >= -1 ? 'ok' : 'over'}"><div class="row between"><span>${bal.gap >= -1 ? (mine ? 'Left to spend' : 'Left over in this version') : 'Over budget by'}</span><b>${U.money(Math.abs(bal.gap))}</b></div>
       <div class="bar"><i style="width:${U.clamp(bal.spend / Math.max(1, bal.avail) * 100, 0, 100)}%"></i></div>
