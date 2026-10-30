@@ -639,7 +639,7 @@ GR.develop = (function () {
     const appeal = T.landmark ? STYLES[p.style || 1].appeal : 1;
     const fx = JSON.parse(JSON.stringify(T.fx || {}));
     if (fx.app) fx.app *= appeal;
-    SC().apply(s, fx, { J, mult: 1 });
+    SC().apply(s, fx, { J, mult: 1, noAsk: !mine });
     Object.entries(T.K || {}).forEach(([k, v]) => { J.F.mac.K[k] = U.clamp(J.F.mac.K[k] + v * Math.min(1.5, cost(p) / Math.max(1, GR.fisc.totals(J).spend) * 6 + 0.3), 30, 300); });
     GR.sim.news(s, `The ${p.name} opens.`, 'econ');
     if (mine) SC().post(s, { kicker: 'Grand opening', title: `The ${p.name} opens`, text: `After ${Math.round((s.week - p.buildW) / 52 * 10) / 10} years of construction the ${p.name} is open to the public.`, choices: [['Lead the ribbon cutting', { app: 2 * appeal, hours: -3, rec: 2 }, 'Crowds turn out.'], ['A quiet opening', {}, '']] });

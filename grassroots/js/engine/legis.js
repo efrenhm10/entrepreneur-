@@ -996,9 +996,12 @@ GR.legis = (function () {
       J.fy = J.fy || {};
       const [m, d] = PROPOSE[jur];
       const fy = jur === 'nation' ? y + 1 : y + 1;
+      // Agency requests come in about two months before the proposal.
+      if (GR.budget && GR.budget.has(jur)) [y, y + 1].forEach((yy) => { if (s.week === U.weekOfMD(yy, m, d) - 8) GR.budget.agencyRequests(s, J, yy + 1); });
       // Proposal.
       if (s.week === U.weekOfMD(y, m, d) && J.fy.proposed !== fy) {
         J.fy.proposed = fy;
+        if (GR.budget && GR.budget.has(jur)) GR.budget.agencyRequests(s, J, fy);
         const ex = G().execOf(s, jur);
         if (ex && ex.isPlayer) {
           s.budgetDue = s.budgetDue || {};

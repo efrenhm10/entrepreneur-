@@ -88,7 +88,13 @@ GR.scenes = (function () {
         if (e.op) { a.opex *= 1 + e.op * m / 100; chip(`${a.abbr} operations %`, e.op * m, true, 1); }
         if (e.cap) { a.capex *= 1 + e.cap * m / 100; chip(`${a.abbr} capital %`, e.cap * m, true, 1); }
       });
-      if (fx.cost) { const amt = fx.cost * m * GR.fisc.totals(J).spend; pay(J, amt); chips.push({ t: `${amt >= 0 ? 'Cost' : 'Revenue'} ${U.money(Math.abs(amt))}`, good: amt < 0 }); }
+      if (fx.cost) {
+        const amt = fx.cost * m * GR.fisc.totals(J).spend;
+        pay(J, amt);
+        chips.push({ t: `${amt >= 0 ? 'Cost' : 'Revenue'} ${U.money(Math.abs(amt))}`, good: amt < 0 });
+        // A balanced budget means it has to come from somewhere: ask where.
+        if (amt > 0 && F.lvl !== 'nation' && !o.noAsk) payFrom(s, J, amt, o.what);
+      }
       if (fx.gap) { F.mac.gap += fx.gap * m; chip('Economy', fx.gap * m * 10, true, 1); }
       if (fx.jobs && GR.develop) { const k = fx.jobs * m * (J.k === 'city' ? 0.5 : 1); GR.develop.addJobs(J, k); chips.push({ t: `Jobs +${U.num(Math.round(k * 1000))}`, good: true }); }
     }
@@ -98,6 +104,20 @@ GR.scenes = (function () {
     return chips;
   }
   // One-time spending (positive) or revenue (negative) for a government.
+  // A cost that came up mid-year: it is fronted from the rainy-day fund, then you decide where it really comes from.
+  function payFrom(s, J, amt, what) {
+    const F = J.F;
+    const big = F.ag.filter((a) => a.opex > amt * 5).sort((a, b) => b.opex - a.opex).slice(0, 2);
+    const cap = U.sum(F.ag, (a) => a.capex);
+    post(s, { jur: J.k, kicker: `Budget office · ${J.name}`, title: `Paying for it: ${U.money(amt)}`,
+      text: `${what ? `“${what}” costs` : 'That decision costs'} ${U.money(amt)} this year, and the budget must balance. For now it has been fronted from the rainy-day fund (${U.money(F.reserve)} left). Where should it really come from?`,
+      choices: [
+        { label: 'Leave it on the rainy-day fund', fx: {}, res: 'The reserve covers it. Rating agencies watch how fast it is shrinking.', run: 'payKeep', args: { jur: J.k, amt } },
+        { label: 'Agencies absorb it: small cuts across the board', fx: { pw: { labor: -2 } }, run: 'payAbsorb', args: { jur: J.k, amt } },
+        cap > amt * 3 ? { label: 'Delay construction projects to cover it', fx: { pw: { business: -1 } }, run: 'payDelay', args: { jur: J.k, amt } } : null,
+      ].concat(big.map((a) => ({ label: `Take it out of ${a.abbr}'s budget`, fx: {}, run: 'payAg', args: { jur: J.k, amt, ag: a.k } }))).filter(Boolean) });
+  }
+
   function pay(J, amt) {
     const F = J.F;
     if (F.lvl === 'nation') { F.debt += amt; return; }
@@ -148,7 +168,7 @@ GR.scenes = (function () {
     if (!canPay(s, ch.fx)) return 'You cannot afford that right now.';
     const c = ctx(s);
     const J = sc.jur ? s.jur[sc.jur] : c && c.J;
-    const chips = apply(s, ch.fx, { J, mult: sc.mult != null ? sc.mult : c ? c.mult : 1 });
+    const chips = apply(s, ch.fx, { J, mult: sc.mult != null ? sc.mult : c ? c.mult : 1, what: `${it.title}: ${ch.label}` });
     let res = ch.res || '';
     if (ch.run && RUN[ch.run]) { const r = RUN[ch.run](s, ch.args || {}, chips); if (typeof r === 'string') res = r; }
     it.chips = chips;
@@ -166,6 +186,12 @@ GR.scenes = (function () {
 
   // ---------- Named outcomes ----------
   const RUN = {};
+  // Where a mid-year cost comes from. The fund fronted it; these pay the fund back.
+  const refill = (J, amt) => { J.F.reserve += amt; };
+  RUN.payKeep = () => {};
+  RUN.payAbsorb = (s, a) => { const J = s.jur[a.jur]; const op = U.sum(J.F.ag, (x) => x.opex); J.F.ag.forEach((x) => { x.opex -= a.amt * x.opex / Math.max(1, op); }); refill(J, a.amt); return `Agencies trim ${(a.amt / op * 100).toFixed(2)}% from operations to cover it. The rainy-day fund is made whole.`; };
+  RUN.payDelay = (s, a) => { const J = s.jur[a.jur]; const cap = U.sum(J.F.ag, (x) => x.capex); J.F.ag.forEach((x) => { x.capex -= a.amt * x.capex / Math.max(1, cap); }); refill(J, a.amt); return `Projects slip to cover it (${(a.amt / cap * 100).toFixed(1)}% of capital spending). Roads and buildings wait a little longer.`; };
+  RUN.payAg = (s, a) => { const J = s.jur[a.jur]; const x = J.F.ag.find((g) => g.k === a.ag); if (!x) return; x.opex -= a.amt; refill(J, a.amt); GR.sim.news(s, `${x.abbr} absorbs a ${U.money(a.amt)} cut to cover an unplanned cost.`, 'gov'); return `${x.abbr} gives up ${U.money(a.amt)} (${(a.amt / (x.opex + a.amt) * 100).toFixed(1)}% of its operations). Its director is not pleased.`; };
   RUN.recallVote = (s, a) => {
     const me = s.pols.me;
     if (!me.seat || me.seat !== a.seat) return;

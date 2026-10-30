@@ -251,6 +251,17 @@ GR.budget = (function () {
     const bud = { amt, tax: {}, draw: 0, cs: o.cs };
     // Requests the executive takes up.
     (J.bud.requests || []).filter((r) => !r.funded).forEach((r) => { const l = ls.find((x) => x.k === r.line); if (l && pri[l.k] > 0.6 && U.chance(0.5)) { amt[l.k] = (amt[l.k] || 0) + r.amt; r.inProp = true; } });
+    // Agency requests: funded by priority while there is room; in a lean year only the urgent ones, in part.
+    let room = balance(J, bud).gap;
+    (J.bud.agReq || []).slice().sort((x, y) => (pri[y.k] || 0) + (y.urgent ? 0.6 : 0) - (pri[x.k] || 0) - (x.urgent ? 0.6 : 0)).forEach((r) => {
+      const l = ls.find((x) => x.k === r.k);
+      if (!l) return;
+      const c = l.part === 'capex' ? 0.6 : 1;
+      const want = r.ask * ((pri[r.k] || 0) > 0.6 || r.urgent ? 1 : 0.5);
+      const give = room > 0 ? Math.min(want, room * 0.6 / c) : r.urgent && fis < 0.5 ? want * 0.35 : 0;
+      if (give <= 0) return;
+      amt[r.k] = (amt[r.k] || 0) + give; room -= give * c;
+    });
     let gap = balance(J, bud).gap;
     const disc = U.sum(Object.values(o.cs));
     const csCash = cash(J, o.cs);
@@ -418,6 +429,9 @@ GR.budget = (function () {
     (bud.requests || []).forEach((r) => { if (r.inProp || (amt[r.line] || 0) > (b.prov.bud.cs[r.line] || 0) + r.amt * 0.5) r.funded = true; });
     bud.requests = (bud.requests || []).filter((r) => !r.funded && s.week - r.w < 104);
     bud.fyDone = b.fy;
+    // Agencies that were turned down say so.
+    if (bud.agFy === b.fy) (bud.agReq || []).map((r) => Object.assign(r, { got: reqShare(r, amt, b.prov.bud.cs) })).filter((r) => r.got < 0.3 && r.ask > 0).sort((x, y) => y.ask - x.ask).slice(0, 2)
+      .forEach((r) => GR.sim.news(s, `${r.abbr} warns that without the ${U.money(r.ask)} it asked for in ${r.line.toLowerCase()}, ${r.risk}. The FY${b.fy} budget gives it ${Math.round(r.got * 100)}% of its request.`, 'gov'));
     // Member items become earmarks.
     (b.prov.bud.items || []).forEach((it) => { J.F.ear.push({ who: it.who, ag: it.ag, amt: it.amt, proj: it.proj, q: 4 }); if (it.who === 'me') { const me = s.pols.me; me.app = U.clamp(me.app + 1.2, 1, 99); GR.sim.msgInbox(s, 'Your project is funded', `The ${it.proj} (${U.money(it.amt)}) made it into the budget. Your district will hear about it.`); } });
   }
@@ -479,6 +493,46 @@ GR.budget = (function () {
       { label: 'Use it as leverage: trade your vote for a district project', fx: { hours: -2 }, res: 'You open talks with the Appropriations chair.', run: 'budLever', args: { bill: b.id } },
     ] });
   }
+  // ---------- Agency requests ----------
+  // Every budget season departments ask for more than current services: to keep up with workload,
+  // answer a crisis, or fix what is wearing out. The executive decides what to fund.
+  function agencyRequests(s, J, fy) {
+    const bud = ensure(J);
+    if (bud.agFy === fy && bud.agReq) return bud.agReq;
+    const F = J.F;
+    const o = outlook(J);
+    const crisisOf = {};
+    Object.entries(F.crises).forEach(([k, c]) => (GR.CRISIS_TYPES[k].ag || []).forEach(([ak]) => { if (c.s > 40 && (!crisisOf[ak] || F.crises[crisisOf[ak]].s < c.s)) crisisOf[ak] = k; }));
+    const reqs = [];
+    bud.lines.forEach((l) => {
+      const base = o.cs[l.k] || 0;
+      const a = F.ag.find((x) => x.k === l.ag);
+      if (base <= 0 || !a) return;
+      const ratio = FX().agRatio(F, a, l.part);
+      const ck = crisisOf[a.k];
+      const cr = ck && F.crises[ck];
+      let f = 0.01 + Math.max(0, 1 - ratio) * 0.3 + (cr ? Math.max(0, cr.s - 50) / 100 * 0.12 : 0) + (l.part === 'capex' ? Math.max(0, a.deg - 45) / 100 * 0.12 : 0) + U.rand() * 0.025;
+      f = U.clamp(f, 0.01, 0.12);
+      const why = [];
+      if (cr) why.push(`the ${GR.CRISIS_TYPES[ck].name.toLowerCase()} is rated ${Math.round(cr.s)} of 100`);
+      if (ratio < 0.95) why.push(`its workload has outgrown its funding by ${Math.round((1 - ratio) * 100)}%`);
+      if (l.part === 'capex' && a.deg > 50) why.push('its buildings and equipment are wearing out');
+      if (!why.length) why.push('staff, fuel and contract costs keep rising');
+      const risk = cr ? `the ${GR.CRISIS_TYPES[ck].name.toLowerCase()} gets worse` : ratio < 0.95 ? 'waits and backlogs grow' : l.part === 'capex' ? 'repairs are deferred again' : 'services get trimmed';
+      reqs.push({ k: l.k, ag: a.k, abbr: a.abbr, line: l.name, base: Math.round(base), ask: Math.round(base * f), why: why.slice(0, 2).join(', and '), risk, urgent: false, sev: (cr ? cr.s : 0) + (1 - ratio) * 200 });
+    });
+    reqs.sort((x, y) => y.ask / y.base - x.ask / x.base);
+    bud.agReq = reqs.slice(0, 10);
+    // Only the two or three that really are emergencies get flagged.
+    bud.agReq.slice().sort((x, y) => y.sev - x.sev).slice(0, 3).forEach((r) => { if (r.sev > 70) r.urgent = true; });
+    bud.agFy = fy;
+    const tot = U.sum(bud.agReq, (r) => r.ask);
+    GR.sim.news(s, `${J.name} agencies submit FY${fy} budget requests: ${U.money(tot)} more than current services. The ${GR.xneg.exTitle(s, J.k).toLowerCase()} decides what to fund.`, 'gov');
+    return bud.agReq;
+  }
+  // How much of each request a budget funds (0 … 1).
+  function reqShare(r, amt, cs) { return r.ask > 0 ? U.clamp(((amt[r.k] || 0) - (cs[r.k] || r.base)) / r.ask, 0, 1) : 0; }
+
   // ---------- Mid-year shortfalls ----------
   // When revenue falls short mid-year, executives act: across-the-board cuts, hiring freezes and
   // delayed projects, a revenue package sent to the legislature, or riding it out on the reserve.
@@ -596,5 +650,5 @@ GR.budget = (function () {
     return out;
   }
 
-  return { shortfall, caucusCheck, CAT, REGIONS, has, itemVeto, geoOf, regionOf, regionName, ensure, current, lines, lineOf, outlook, cash, taxYield, balance, regional, memberScore, compile, propose, move, chairMark, rework, aiItemVeto, applyItemVetoes, onEnact, addRequest, makeBill, askItem, moveOptions, disc };
+  return { agencyRequests, reqShare, shortfall, caucusCheck, CAT, REGIONS, has, itemVeto, geoOf, regionOf, regionName, ensure, current, lines, lineOf, outlook, cash, taxYield, balance, regional, memberScore, compile, propose, move, chairMark, rework, aiItemVeto, applyItemVetoes, onEnact, addRequest, makeBill, askItem, moveOptions, disc };
 })();

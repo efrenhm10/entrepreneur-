@@ -408,3 +408,12 @@ label.f > span { font-weight: 600; }
 .opp.openseat { border-left: 3px solid var(--good); }
 .geobar { display: inline-flex; width: 70px; height: 8px; border-radius: 4px; overflow: hidden; background: var(--panel-3); vertical-align: middle; }
 .geobar i { display: block; height: 100%; }
+.tbl tr.changed td { background: rgba(227, 179, 65, .08); }
+.tbl tr.changed td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.budhead { border: 1px solid var(--line); border-left: 4px solid var(--good); border-radius: 4px; padding: 8px 10px; margin-bottom: 10px; background: var(--panel-2); }
+.budhead.over { border-left-color: var(--bad); }
+.budhead .row b { font-family: Oswald, sans-serif; font-size: 1.5rem; }
+.budhead.ok .row b { color: var(--good); }
+.budhead.over .row b { color: var(--bad); }
+.budhead .bar { margin: 6px 0 4px; }
+.budhead.over .bar > i { background: var(--bad); }

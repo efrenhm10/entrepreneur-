@@ -172,6 +172,8 @@ GR.ui = (function () {
     if (!root) return;
     const y = window.scrollY;
     const foc = document.activeElement && document.activeElement.id;
+    // Inner scrollers (wide tables) keep their place too, matched by order on the page.
+    const sx = [...root.querySelectorAll('.scroll-x')].map((e) => [e.scrollLeft, e.scrollTop]);
     let html = '';
     if (ui.screen === 'title') html = GR.uiCreate.title();
     else if (ui.screen === 'create') html = GR.uiCreate.render();
@@ -181,6 +183,7 @@ GR.ui = (function () {
     if (!ov) { ov = document.createElement('div'); ov.id = 'overlay-root'; document.body.appendChild(ov); }
     ov.innerHTML = ui.screen === 'game' ? GR.uiGame.overlay() : '';
     if (foc) { const f = document.getElementById(foc); if (f) { f.focus({ preventScroll: true }); if (f.setSelectionRange && f.type === 'text') { const n = f.value.length; f.setSelectionRange(n, n); } } }
+    if (sx.some((v) => v[0] || v[1])) root.querySelectorAll('.scroll-x').forEach((e, i) => { if (sx[i]) { e.scrollLeft = sx[i][0]; e.scrollTop = sx[i][1]; } });
     window.scrollTo(0, y);
   };
   ui.go = (screen) => { ui.screen = screen; ui.render(); window.scrollTo(0, 0); };
