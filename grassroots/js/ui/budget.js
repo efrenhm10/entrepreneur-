@@ -90,9 +90,13 @@ GR.uiBudget = (function () {
     const head = bal ? `<div class="budhead ${bal.gap >= -1 ? 'ok' : 'over'}"><div class="row between"><span>${bal.gap >= -1 ? (mine ? 'Left to spend' : 'Left over in this version') : 'Over budget by'}</span><b>${U.money(Math.abs(bal.gap))}</b></div>
       <div class="bar"><i style="width:${U.clamp(bal.spend / Math.max(1, bal.avail) * 100, 0, 100)}%"></i></div>
       <div class="tiny muted">${U.money(bal.spend)} spent of ${U.money(bal.avail)} available${(bud.draw || 0) < 0 ? ` after setting aside ${U.money(-bud.draw)} for the rainy-day fund` : (bud.draw || 0) > 0 ? `, including ${U.money(bud.draw)} drawn from the rainy-day fund` : ''}${bud.debtPay > 0 ? `; ${U.money(bud.debtPay)} of it pays down debt` : ''}</div></div>` : '';
+    // Why the debt moves.
+    const df = B().debtFlow(J, bud);
+    const debtLine = `<div class="small" style="margin-top:8px;padding:6px 8px;background:var(--panel-2);border-radius:4px"><b>Debt ${bud ? 'under this version' : 'this year'}:</b> <span class="${df.net > 0 ? 'bad' : 'good'}">${df.net > 0 ? 'rises' : 'falls'} ${U.money(Math.abs(df.net))}</span>
+      <div class="tiny muted">+${U.money(df.bonds)} new bonds for construction (${Math.round(df.bs * 100)}% borrowed) · −${U.money(df.principal)} regular principal${df.extra ? ` · −${U.money(df.extra)} extra payment` : ''}${df.sur ? ` · −${U.money(df.sur)} surplus to debt` : ''}${df.net > 0 && df.bs > 0 ? '. To stop it rising, borrow less for construction or send surpluses to the debt.' : ''}</div></div>`;
     return ui.panel(bal ? `FY${fy + 1} budget: this version` : `FY${fy + 1} outlook`, `${head}${now}<div class="ind">${stats}
-    </div>
-    <p class="tiny muted" style="margin-top:6px">Revenue is the official (cautious) estimate. Locked in: benefits, pensions and debt service the law already requires. Status quo cost ("current services") is what it costs to keep doing exactly what agencies do now (prices, enrollment and caseloads rise). Capital lines are 40% financed with bonds.</p>
+    </div>${debtLine}
+    <p class="tiny muted" style="margin-top:6px">Revenue is the official (cautious) estimate. Locked in: benefits, pensions and debt service the law already requires. Status quo cost ("current services") is what it costs to keep doing exactly what agencies do now (prices, enrollment and caseloads rise). Capital lines are partly financed with bonds (${Math.round(B().bondShare(J, bud && bud.bondShare) * 100)}% now).</p>
     ${bal ? `<div class="row between" style="margin-top:8px"><b>This version</b><span class="${bal.gap >= -1 ? 'good' : 'bad'}">${bal.gap >= -1 ? `balanced with ${U.money(bal.gap)} to spare` : `${U.money(-bal.gap)} out of balance`}</span></div>
       <div class="small muted">${Object.entries(bud.tax || {}).filter(([, v]) => v).map(([k, v]) => `${GR.fisc.TAXES[k].name}: ${v > 0 ? '+' : ''}${v}`).join(' · ') || 'No tax changes'}${bud.draw > 0 ? ` · ${U.money(bud.draw - (bud.oneTime || 0))} from the rainy-day fund` : bud.draw < 0 ? ` · ${U.money(-bud.draw)} saved in the rainy-day fund` : ''}${bud.oneTime ? ` · ${U.money(bud.oneTime)} in one-time gimmicks (deferred payments, fund sweeps)` : ''}</div>` : ''}`);
   }
@@ -147,6 +151,11 @@ GR.uiBudget = (function () {
       <div class="row between small"><span>${bud.debtPay > 0 ? `<b class="good">Extra payment ${U.money(bud.debtPay)}</b> · saves ~${U.money(bud.debtPay * o.svc)}/yr in debt service` : 'Regular payments only'}</span><span class="row">${ui.btn('Pay more', 'buddebt', '+', 'bgr sm', o.debt <= (bud.debtPay || 0))}${ui.btn('Less', 'buddebt', '-', 'bgr sm', !(bud.debtPay > 0))}</span></div>
       <div class="row" style="gap:6px;margin-top:4px;flex-wrap:wrap"><input class="input num" style="max-width:150px" id="buddebtamt" type="number" step="1" placeholder="Payment, $ millions">${ui.btn('Set payment', 'buddebtset', '', 'bgr sm')}${ui.btn('Put everything left over toward debt', 'buddebt', 'all', 'bgr sm', B().balance(J, bud).gap <= 1)}</div>
       <p class="tiny muted" style="margin-top:4px">A one-time extra payment on principal. It has to fit in the budget like any other spending, and every dollar retired saves about ${(o.svc * 100).toFixed(1)}¢ a year in interest and principal from then on. Rating agencies like it.</p>
+      <div class="tiny muted" style="margin:10px 0 4px">Borrowing for construction</div>
+      <div class="seg">${[[0.4, '40%'], [0.2, '20% (usual)'], [0.1, '10%'], [0, 'Pay cash']].map(([v, l]) => `<button aria-pressed="${Math.abs(B().bondShare(J, bud.bondShare) - v) < 0.01}" data-act="budbond" data-a="${v}">${l}</button>`).join('')}</div>
+      <p class="tiny muted" style="margin-top:4px">States and cities usually borrow part of what they spend on construction. Paying cash costs more this year but stops the debt from growing.</p>
+      <div class="tiny muted" style="margin:10px 0 4px">Where a surplus goes</div>
+      <div class="seg">${[['reserve', 'Rainy-day fund'], ['split', 'Half and half'], ['debt', 'Pay down debt']].map(([v, l]) => `<button aria-pressed="${(bud.surplusTo || o.surplusTo) === v}" data-act="budsurto" data-a="${v}">${l}</button>`).join('')}</div>
       <div class="row" style="margin-top:12px">${ui.btn(bal.gap >= -1 ? 'Submit the budget to the legislature' : `Out of balance by ${U.money(-bal.gap)}`, 'budsubmit', '', 'bo', bal.gap < -GR.fisc.totals(J).spend * 0.001)}</div>`);
   }
 
@@ -219,6 +228,8 @@ GR.uiBudget = (function () {
   A('budtax', (el, a) => { const [k, dir] = a.split('|'); const d = ui.sel.budDraft; if (!d) return; const step = GR.fisc.TAXES[k].step || (GR.fisc.TAXES[k].unit === 'mills' ? 0.5 : GR.fisc.TAXES[k].unit === '$/t' ? 5 : 0.1); d.bud.tax[k] = U.round((d.bud.tax[k] || 0) + (dir === '+' ? step : -step), 2); });
   // Positive draw takes money out of the rainy-day fund; negative is a deposit.
   const depMax = (J) => GR.fisc.totals(J).spend * 0.05;
+  A('budbond', (el, a) => { const d = ui.sel.budDraft; if (d) d.bud.bondShare = +a; });
+  A('budsurto', (el, a) => { const d = ui.sel.budDraft; if (d) d.bud.surplusTo = a; });
   A('buddebt', (el, a) => { const d = ui.sel.budDraft; if (!d) return; const J = dJ(); const debt = J.F.debt; const cur = d.bud.debtPay || 0;
     if (a === 'all') { const gap = B().balance(J, d.bud).gap; d.bud.debtPay = Math.round(Math.min(debt, cur + Math.max(0, gap))); return; }
     const step = Math.max(1e6, Math.min(debt * 0.02, GR.fisc.totals(J).spend * 0.005));

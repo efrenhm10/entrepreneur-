@@ -53,7 +53,13 @@ GR.fisc = (function () {
   function upgrade(s) {
     Object.values(s.jur || {}).forEach((J) => {
       const F = J && J.F;
-      if (!F || (F.lvl !== 'state' && F.lvl !== 'city') || F.tax.lodge != null) return;
+      if (!F || F.lvl === 'nation') return;
+      // Saves that borrowed 40% of construction: move to the usual share without changing the balance.
+      if (F.bondV !== 2) {
+        F.bondV = 2;
+        if (F.bondShare == null) { const t = totals(J); const N = F.mac.gdp / F.mac.gdp0; const d = (0.4 - BOND0) * (t.capex + t.ear) / N; F.otherAdj = (F.otherAdj || 0) + d; F.otherAdj0 = (F.otherAdj0 || 0) + d; }
+      }
+      if ((F.lvl !== 'state' && F.lvl !== 'city') || F.tax.lodge != null) return;
       const r0 = totals(J).rev;
       extraTaxes(F, F.lvl, s.home.state, J.pop || 1e5, F.mac.gdp0);
       ['lodge', 'sin', 'fuel'].forEach((k) => { if (F.tax[k] != null) F.tax0[k] = F.tax[k]; });
@@ -83,6 +89,9 @@ GR.fisc = (function () {
     return F.base[k] * (F.mac.gdp / F.mac.gdp0) / (k === 'prop' ? 1000 : 100);
   }
 
+  // The usual share of state and local construction paid for with bonds: enough that new borrowing
+  // roughly matches what is repaid, so debt stays level unless leaders choose otherwise.
+  const BOND0 = 0.2;
   const LEAK = { nation: 1, state: 0.55, city: 0.35, school: 0.3 };
 
   // ---------- Entitlements ----------
@@ -255,6 +264,7 @@ GR.fisc = (function () {
       }
     }
     extraTaxes(F, lvl, ab, pop, gdp);
+    F.bondV = 2;
     F.tax0 = Object.assign({}, F.tax);
     // Balance the starting budget with fees and other revenue (federal: a ~$1.8T deficit).
     const t = totals(J);
@@ -493,7 +503,7 @@ GR.fisc = (function () {
     const spend = opex + capex + ear + ent + interest + principal;
     const rev = U.sum(Object.values(rv), (x) => x.amt);
     // States and localities finance part of their capital budgets with bonds.
-    const bond = F.lvl === 'nation' ? 0 : 0.4 * (capex + ear);
+    const bond = F.lvl === 'nation' ? 0 : (F.bondShare != null ? F.bondShare : BOND0) * (capex + ear);
     const out = { rv, ec, ag, opex, capex, ear, ent, interest, principal, spend, rev, bond, bal: rev + bond - spend,
       sp: Object.assign({}, ...F.ag.map((a) => ({ [a.abbr]: ag[a.k].total })), ...Object.values(ec).map((e) => ({ [e.name]: e.cost })), { 'Debt service': interest + principal }) };
     _tc.set(F, out);
@@ -632,6 +642,8 @@ GR.fisc = (function () {
       if (F.owed > 0) {
         if (add > 0) { const x = Math.min(F.owed, add); F.owed -= x; add -= x; } else { F.reserve -= F.owed; F.owed = 0; }
       }
+      // Surpluses go to the rainy-day fund unless the budget sends them to the debt.
+      if (add > 0 && F.surplusTo && F.surplusTo !== 'reserve' && F.debt > 0) { const x = Math.min(F.debt, add * (F.surplusTo === 'split' ? 0.5 : 1)); F.debt -= x; add -= x; }
       F.reserve += add;
       // Rainy-day funds are capped by law; overflow pays down debt.
       if (F.lvl !== 'nation' && F.reserve > t2.spend * 0.2) { const over = F.reserve - t2.spend * 0.2; F.reserve -= over; F.debt = Math.max(0, F.debt - over); }
@@ -803,5 +815,5 @@ GR.fisc = (function () {
     return { draw, cut: f, amt: base * f };
   }
 
-  return { balanceRule, TAXES, LEVEL_TAXES, perPoint, upgrade, pressure, ENTS, LADDER, ratingOf, init, totals, revenue, entCosts, quarter, apply, analyze, taxDist, cloneJ, mitigation, dissatisfaction, agRatio, serviceAdj, emissions, fmtB, ratingScore };
+  return { BOND0, balanceRule, TAXES, LEVEL_TAXES, perPoint, upgrade, pressure, ENTS, LADDER, ratingOf, init, totals, revenue, entCosts, quarter, apply, analyze, taxDist, cloneJ, mitigation, dissatisfaction, agRatio, serviceAdj, emissions, fmtB, ratingScore };
 })();

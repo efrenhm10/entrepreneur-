@@ -169,10 +169,13 @@ GR.budget = (function () {
     Object.entries(cur).forEach(([k, v]) => { cs[k] = v * (1 + infl + (drift[k] || 0.004)); });
     const drawMax = Math.max(0, F.reserve * 0.35);
     // Each dollar of debt retired saves interest and the yearly principal payment from then on.
-    return { rev, mand, cur, cs, infl, g, drawMax, reserve: F.reserve, debt: F.debt, svc: F.mac.effRate / 100 + 0.05 };
+    return { rev, mand, cur, cs, infl, g, drawMax, reserve: F.reserve, debt: F.debt, svc: F.mac.effRate / 100 + 0.05, bondShare: bondShare(J), surplusTo: F.surplusTo || 'reserve' };
   }
   // Cash cost of a set of lines: capital is 40% bond-financed.
-  function cash(J, amt) { return U.sum(lines(J), (l) => (amt[l.k] || 0) * (l.part === 'capex' ? 0.6 : 1)); }
+  // Cash cost of a dollar of capital: what is not financed with bonds.
+  const bondShare = (J, bs) => (J.k === 'nation' ? 0 : bs != null ? bs : J.F.bondShare != null ? J.F.bondShare : FX().BOND0);
+  const capC = (J, bs) => 1 - bondShare(J, bs);
+  function cash(J, amt, bs) { return U.sum(lines(J), (l) => (amt[l.k] || 0) * (l.part === 'capex' ? capC(J, bs) : 1)); }
   // Revenue from tax changes in the budget.
   function taxYield(J, tax) {
     let v = 0;
@@ -183,8 +186,24 @@ GR.budget = (function () {
     const o = outlook(J);
     const avail = o.rev + taxYield(J, bud.tax) + (bud.draw || 0) - o.mand;
     // An extra payment on the debt is spending too: it has to fit.
-    const spend = cash(J, bud.amt) + (bud.debtPay || 0);
+    const spend = cash(J, bud.amt, bud.bondShare) + (bud.debtPay || 0);
     return { avail, spend, gap: avail - spend, o };
+  }
+
+  // Why the debt moves in a year: new bonds for construction, regular principal, extra payments
+  // and surpluses sent to the debt.
+  function debtFlow(J, bud) {
+    const F = J.F;
+    const t = FX().totals(J);
+    const bs = bondShare(J, bud && bud.bondShare);
+    const capex = bud ? U.sum(lines(J).filter((l) => l.part === 'capex'), (l) => bud.amt[l.k] || 0) + t.ear : t.capex + t.ear;
+    const bonds = bs * capex;
+    const principal = t.principal;
+    const extra = (bud && bud.debtPay) || 0;
+    const to = (bud && bud.surplusTo) || F.surplusTo || 'reserve';
+    const op = Math.max(0, bud ? balance(J, bud).gap : t.bal - (F.owed || 0));
+    const sur = to === 'debt' ? op : to === 'split' ? op / 2 : 0;
+    return { bonds, principal, extra, sur, net: bonds - principal - extra - sur, bs, to };
   }
 
   // How each region fares against current services (fraction).
@@ -258,7 +277,7 @@ GR.budget = (function () {
     (J.bud.agReq || []).slice().sort((x, y) => (pri[y.k] || 0) + (y.urgent ? 0.6 : 0) - (pri[x.k] || 0) - (x.urgent ? 0.6 : 0)).forEach((r) => {
       const l = ls.find((x) => x.k === r.k);
       if (!l) return;
-      const c = l.part === 'capex' ? 0.6 : 1;
+      const c = l.part === 'capex' ? capC(J) : 1;
       const want = r.ask * ((pri[r.k] || 0) > 0.6 || r.urgent ? 1 : 0.5);
       const give = room > 0 ? Math.min(want, room * 0.6 / c) : r.urgent && fis < 0.5 ? want * 0.35 : 0;
       if (give <= 0) return;
@@ -299,7 +318,7 @@ GR.budget = (function () {
   // Targeted cuts on low priorities first, then across the board; no line loses more than 15%.
   function cutTo(J, bud, need, pri) {
     const ls = lines(J).filter((l) => (bud.amt[l.k] || 0) > 0);
-    const c = (l) => (l.part === 'capex' ? 0.6 : 1);
+    const c = (l) => (l.part === 'capex' ? capC(J) : 1);
     const floor = {};
     ls.forEach((l) => { floor[l.k] = ((bud.cs || {})[l.k] || bud.amt[l.k]) * 0.85; });
     let left = need;
@@ -330,7 +349,7 @@ GR.budget = (function () {
     if (!lf || !lt || from === to) return 0;
     const have = bud.amt[from] || 0;
     const take = Math.max(0, Math.min(amt, have * 0.5));
-    const cf = lf.part === 'capex' ? 0.6 : 1, ct = lt.part === 'capex' ? 0.6 : 1;
+    const cf = lf.part === 'capex' ? capC(J) : 1, ct = lt.part === 'capex' ? capC(J) : 1;
     bud.amt[from] = have - take;
     bud.amt[to] = (bud.amt[to] || 0) + take * cf / ct;
     return take;
@@ -382,7 +401,7 @@ GR.budget = (function () {
       if ((bud.debtPay || 0) >= extra * 0.5) { const cut = Math.min(bud.debtPay, extra); bud.debtPay -= cut; found = `by shrinking the extra debt payment by ${U.money(cut)}`; }
       else if (room > extra * 0.5) { bud.draw = (bud.draw || 0) + Math.min(room, extra); found = 'from the rainy-day fund'; }
       else { const key = J.k === 'state' ? (J.F.tax.sales != null ? 'sales' : 'high') : 'prop'; const per = taxYield(J, { [key]: 1 }); if (per > 0) { bud.tax = bud.tax || {}; bud.tax[key] = U.round((bud.tax[key] || 0) + extra / per, 2); found = `by raising the ${FX().TAXES[key].name.toLowerCase()}`; } }
-      if (found) { const ls2 = lines(J).filter((l) => l.geo[want] > 0.3); const w = U.sum(ls2, (l) => l.geo[want]); ls2.forEach((l) => { bud.amt[l.k] = (bud.amt[l.k] || 0) + extra * l.geo[want] / w / (l.part === 'capex' ? 0.6 : 1); }); moved += extra; }
+      if (found) { const ls2 = lines(J).filter((l) => l.geo[want] > 0.3); const w = U.sum(ls2, (l) => l.geo[want]); ls2.forEach((l) => { bud.amt[l.k] = (bud.amt[l.k] || 0) + extra * l.geo[want] / w / (l.part === 'capex' ? capC(J) : 1); }); moved += extra; }
     }
     if (!found) from.forEach((lf, i) => { moved += move(J, bud, lf.k, to[i % to.length].k, amt / from.length); });
     compile(J, b.prov);
@@ -413,7 +432,7 @@ GR.budget = (function () {
     const J = s.jur[b.jur];
     const bud = b.prov.bud;
     let saved = 0;
-    keys.forEach((k) => { const was = bud.gov[k]; if (was == null) return; saved += (bud.amt[k] - was) * ((lineOf(J, k) || {}).part === 'capex' ? 0.6 : 1); bud.amt[k] = was; });
+    keys.forEach((k) => { const was = bud.gov[k]; if (was == null) return; saved += (bud.amt[k] - was) * ((lineOf(J, k) || {}).part === 'capex' ? capC(J) : 1); bud.amt[k] = was; });
     compile(J, b.prov);
     b._reg = null;
     b.itemVetoes = keys.map((k) => (lineOf(J, k) || { name: k }).name);
@@ -435,6 +454,9 @@ GR.budget = (function () {
     (bud.requests || []).forEach((r) => { if (r.inProp || (amt[r.line] || 0) > (b.prov.bud.cs[r.line] || 0) + r.amt * 0.5) r.funded = true; });
     bud.requests = (bud.requests || []).filter((r) => !r.funded && s.week - r.w < 104);
     bud.fyDone = b.fy;
+    // Financing choices carry forward: how much construction is borrowed, and where surpluses go.
+    if (b.prov.bud.bondShare != null) J.F.bondShare = b.prov.bud.bondShare;
+    if (b.prov.bud.surplusTo) J.F.surplusTo = b.prov.bud.surplusTo;
     // An extra debt payment: the debt falls now; the money left unspent refills the reserve as the year runs.
     const dp = Math.min(b.prov.bud.debtPay || 0, J.F.debt);
     if (dp > 0) {
@@ -642,7 +664,7 @@ GR.budget = (function () {
     // Paid for out of the line with the least to lose for your region.
     const g = geoOf(s, me, b.jur);
     const from = lines(J).filter((l) => (bud.amt[l.k] || 0) > amt * 4).sort((a, c) => (a.geo[0] * g[0] + a.geo[1] * g[1] + a.geo[2] * g[2]) - (c.geo[0] * g[0] + c.geo[1] * g[1] + c.geo[2] * g[2]))[0];
-    if (from) bud.amt[from.k] -= amt / (from.part === 'capex' ? 0.6 : 1);
+    if (from) bud.amt[from.k] -= amt / (from.part === 'capex' ? capC(J) : 1);
     compile(J, b.prov);
     b._reg = null;
     return { ok: true, msg: `${chair ? W().fullName(chair) : 'The chair'} put the ${proj} (${U.money(amt)}) in the budget (${Math.round(p * 100)}% odds), taken out of ${from ? from.name.toLowerCase() : 'other lines'}. Leadership will expect your vote.` };
@@ -663,5 +685,5 @@ GR.budget = (function () {
     return out;
   }
 
-  return { agencyRequests, reqShare, shortfall, caucusCheck, CAT, REGIONS, has, itemVeto, geoOf, regionOf, regionName, ensure, current, lines, lineOf, outlook, cash, taxYield, balance, regional, memberScore, compile, propose, move, chairMark, rework, aiItemVeto, applyItemVetoes, onEnact, addRequest, makeBill, askItem, moveOptions, disc };
+  return { debtFlow, bondShare, agencyRequests, reqShare, shortfall, caucusCheck, CAT, REGIONS, has, itemVeto, geoOf, regionOf, regionName, ensure, current, lines, lineOf, outlook, cash, taxYield, balance, regional, memberScore, compile, propose, move, chairMark, rework, aiItemVeto, applyItemVetoes, onEnact, addRequest, makeBill, askItem, moveOptions, disc };
 })();
