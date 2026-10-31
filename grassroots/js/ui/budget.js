@@ -85,7 +85,7 @@ GR.uiBudget = (function () {
     // This fiscal year as it actually runs: revenue and spending move every quarter with the economy.
     const fy = L().fiscalYear(s, J.k);
     const tt = GR.fisc.totals(J);
-    const now = `<div class="row between small" style="margin-bottom:8px;padding:6px 8px;background:var(--panel-2);border-radius:4px"><span><b>FY${fy}, now running</b> · revenue ${U.money(tt.rev)} · spending ${U.money(tt.spend)}</span><span class="${tt.bal >= 0 ? 'good' : 'bad'}">${tt.bal >= 0 ? `on track for a ${U.money(tt.bal)} surplus` : `on track for a ${U.money(-tt.bal)} shortfall`}${J.F.owed > 0 ? `<span class="tiny muted"> · ${U.money(J.F.owed)} of it already spent on unplanned costs</span>` : ''}</span></div>`;
+    const now = `<div class="row between small" style="margin-bottom:8px;padding:6px 8px;background:var(--panel-2);border-radius:4px"><span><b>FY${fy}, now running</b> · revenue ${U.money(tt.rev)} · spending ${U.money(tt.spend)}</span><span class="${tt.bal >= 0 ? 'good' : 'bad'}">${tt.bal >= 0 ? `on track for a ${U.money(tt.bal)} surplus` : `on track for a ${U.money(-tt.bal)} shortfall`}${J.F.owed > 0 ? `<span class="tiny muted"> · ${U.money(J.F.owed)} of it already spent on unplanned costs</span>` : ''}</span></div>${yearSoFar(s, J)}`;
     // The headline while you work: what is left to spend, falling as you add.
     const head = bal ? `<div class="budhead ${bal.gap >= -1 ? 'ok' : 'over'}"><div class="row between"><span>${bal.gap >= -1 ? (mine ? 'Left to spend' : 'Left over in this version') : 'Over budget by'}</span><b>${U.money(Math.abs(bal.gap))}</b></div>
       <div class="bar"><i style="width:${U.clamp(bal.spend / Math.max(1, bal.avail) * 100, 0, 100)}%"></i></div>
@@ -99,6 +99,20 @@ GR.uiBudget = (function () {
     <p class="tiny muted" style="margin-top:6px">Revenue is the official (cautious) estimate. Locked in: benefits, pensions and debt service the law already requires. Status quo cost ("current services") is what it costs to keep doing exactly what agencies do now (prices, enrollment and caseloads rise). Capital lines are partly financed with bonds (${Math.round(B().bondShare(J, bud && bud.bondShare) * 100)}% now).</p>
     ${bal ? `<div class="row between" style="margin-top:8px"><b>This version</b><span class="${bal.gap >= -1 ? 'good' : 'bad'}">${bal.gap >= -1 ? `balanced with ${U.money(bal.gap)} to spare` : `${U.money(-bal.gap)} out of balance`}</span></div>
       <div class="small muted">${Object.entries(bud.tax || {}).filter(([, v]) => v).map(([k, v]) => `${GR.fisc.TAXES[k].name}: ${v > 0 ? '+' : ''}${v}`).join(' · ') || 'No tax changes'}${bud.draw > 0 ? ` · ${U.money(bud.draw - (bud.oneTime || 0))} from the rainy-day fund` : bud.draw < 0 ? ` · ${U.money(-bud.draw)} saved in the rainy-day fund` : ''}${bud.oneTime ? ` · ${U.money(bud.oneTime)} in one-time gimmicks (deferred payments, fund sweeps)` : ''}</div>` : ''}`);
+  }
+
+  // Where this year's money has gone so far, and (for the executive) where the rest of the surplus goes.
+  function yearSoFar(s, J) {
+    const F = J.F;
+    const yr = F.yr;
+    const to = F.surplusTo || 'reserve';
+    const me = GR.OFFICES[s.seats[s.pols.me.seat].off];
+    const dest = { reserve: 'the rainy-day fund', split: 'half the rainy-day fund, half the debt', debt: 'paying down debt' }[to];
+    const flows = yr ? [yr.toRes > 1 ? `+${U.money(yr.toRes)} into the rainy-day fund` : '', yr.fromRes > 1 ? `−${U.money(yr.fromRes)} drawn from it` : '', yr.toDebt > 1 ? `${U.money(yr.toDebt)} to the debt` : '', yr.xpay > 1 ? `${U.money(yr.xpay)} extra debt payment` : '', yr.owed > 1 ? `${U.money(yr.owed)} on unplanned costs` : '', yr.borrow > 1 ? `${U.money(yr.borrow)} borrowed` : ''].filter(Boolean) : [];
+    return `<div class="small" style="margin:-4px 0 8px;padding:6px 8px;background:var(--panel-2);border-radius:4px">
+      <div>Rainy-day fund <b>${U.money(F.reserve)}</b>${yr ? ` <span class="tiny muted">(started the year at ${U.money(yr.res0)})</span>` : ''} · surpluses go to <b>${dest}</b></div>
+      ${flows.length ? `<div class="tiny muted">This year so far: ${flows.join(' · ')}</div>` : ''}
+      ${me.exec ? `<div class="row" style="gap:6px;margin-top:4px"><span class="tiny muted">Send surpluses to</span><div class="seg">${[['reserve', 'Rainy-day fund'], ['split', 'Half and half'], ['debt', 'Debt']].map(([v, l]) => `<button aria-pressed="${to === v}" data-act="budsurnow" data-a="${v}">${l}</button>`).join('')}</div></div>` : ''}</div>`;
   }
 
   function regionPanel(s, J, b, bud, reg) {
@@ -228,6 +242,7 @@ GR.uiBudget = (function () {
   A('budtax', (el, a) => { const [k, dir] = a.split('|'); const d = ui.sel.budDraft; if (!d) return; const step = GR.fisc.TAXES[k].step || (GR.fisc.TAXES[k].unit === 'mills' ? 0.5 : GR.fisc.TAXES[k].unit === '$/t' ? 5 : 0.1); d.bud.tax[k] = U.round((d.bud.tax[k] || 0) + (dir === '+' ? step : -step), 2); });
   // Positive draw takes money out of the rainy-day fund; negative is a deposit.
   const depMax = (J) => GR.fisc.totals(J).spend * 0.05;
+  A('budsurnow', (el, a) => { const J = dJ(); J.F.surplusTo = a; const d = ui.sel.budDraft; if (d) d.bud.surplusTo = a; ui.toast(`Surpluses now go to ${{ reserve: 'the rainy-day fund', split: 'the rainy-day fund and the debt, half each', debt: 'paying down debt' }[a]}.`); ui.save(); });
   A('budbond', (el, a) => { const d = ui.sel.budDraft; if (d) d.bud.bondShare = +a; });
   A('budsurto', (el, a) => { const d = ui.sel.budDraft; if (d) d.bud.surplusTo = a; });
   A('buddebt', (el, a) => { const d = ui.sel.budDraft; if (!d) return; const J = dJ(); const debt = J.F.debt; const cur = d.bud.debtPay || 0;

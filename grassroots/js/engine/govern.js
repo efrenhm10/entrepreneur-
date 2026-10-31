@@ -518,6 +518,7 @@ GR.gov = (function () {
   function balanceBudgets(s) {
     ['state', 'city', 'school'].forEach((jur) => {
       const J = s.jur[jur];
+      if (GR.budget && J.F) GR.budget.yearEnd(s, J);
       const r = GR.fisc.balanceRule(J);
       if (!r) return;
       if (r.cut > 0.002) {

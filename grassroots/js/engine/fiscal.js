@@ -499,7 +499,8 @@ GR.fisc = (function () {
     const ear = U.sum(F.ear, (e) => e.amt);
     const ent = U.sum(Object.values(ec), (e) => e.cost);
     const interest = F.debt * F.mac.effRate / 100;
-    const principal = F.lvl === 'nation' ? 0 : F.debt * 0.05;
+    // Regular principal, plus any extra payment a budget made, paid a quarter at a time.
+    const principal = F.lvl === 'nation' ? 0 : F.debt * 0.05 + (F.xpay && F.xpay.q > 0 ? F.xpay.amt : 0);
     const spend = opex + capex + ear + ent + interest + principal;
     const rev = U.sum(Object.values(rv), (x) => x.amt);
     // States and localities finance part of their capital budgets with bonds.
@@ -639,17 +640,21 @@ GR.fisc = (function () {
     else {
       // Unplanned costs charged to this year's surplus come out of it before anything is banked.
       let add = t2.bal / 4;
+      const yr = F.yr = F.yr || { sur: 0, def: 0, owed: 0, toRes: 0, fromRes: 0, toDebt: 0, xpay: 0, borrow: 0, res0: F.reserve, debt0: F.debt };
+      if (add >= 0) yr.sur += add; else yr.def += -add;
+      if (F.xpay && F.xpay.q > 0) { yr.xpay += F.xpay.amt / 4; if (--F.xpay.q <= 0) F.xpay = null; }
       if (F.owed > 0) {
-        if (add > 0) { const x = Math.min(F.owed, add); F.owed -= x; add -= x; } else { F.reserve -= F.owed; F.owed = 0; }
+        if (add > 0) { const x = Math.min(F.owed, add); F.owed -= x; add -= x; yr.owed += x; } else { F.reserve -= F.owed; yr.fromRes += F.owed; yr.owed += F.owed; F.owed = 0; }
       }
       // Surpluses go to the rainy-day fund unless the budget sends them to the debt.
-      if (add > 0 && F.surplusTo && F.surplusTo !== 'reserve' && F.debt > 0) { const x = Math.min(F.debt, add * (F.surplusTo === 'split' ? 0.5 : 1)); F.debt -= x; add -= x; }
+      if (add > 0 && F.surplusTo && F.surplusTo !== 'reserve' && F.debt > 0) { const x = Math.min(F.debt, add * (F.surplusTo === 'split' ? 0.5 : 1)); F.debt -= x; add -= x; yr.toDebt += x; }
       F.reserve += add;
+      if (add >= 0) yr.toRes += add; else yr.fromRes += -add;
       // Rainy-day funds are capped by law; overflow pays down debt.
-      if (F.lvl !== 'nation' && F.reserve > t2.spend * 0.2) { const over = F.reserve - t2.spend * 0.2; F.reserve -= over; F.debt = Math.max(0, F.debt - over); }
+      if (F.lvl !== 'nation' && F.reserve > t2.spend * 0.2) { const over = F.reserve - t2.spend * 0.2; F.reserve -= over; yr.toRes -= over; yr.toDebt += over; F.debt = Math.max(0, F.debt - over); }
       F.debt = Math.max(0, F.debt + (t2.bond - t2.principal) / 4);
       // Running out of reserves forces deficit borrowing, which rating agencies punish.
-      if (F.reserve < 0) { F.debt += -F.reserve; F.reserve = 0; F.forcedBorrow = (F.forcedBorrow || 0) + 1; }
+      if (F.reserve < 0) { yr.borrow += -F.reserve; yr.fromRes += F.reserve; F.debt += -F.reserve; F.reserve = 0; F.forcedBorrow = (F.forcedBorrow || 0) + 1; }
     }
     // Earmarks expire after a year.
     F.ear = F.ear.filter((e) => --e.q > 0);
@@ -805,8 +810,8 @@ GR.fisc = (function () {
     const t = totals(J);
     let gap = -t.bal;
     if (gap <= 0) return null;
+    // The reserve covers up to half of it as the year runs (the quarterly deficit draws it down then).
     const draw = Math.min(gap, F.reserve * 0.5);
-    F.reserve -= draw;
     gap -= draw;
     if (gap <= 0) return { draw, cut: 0 };
     const base = t.opex + t.capex;

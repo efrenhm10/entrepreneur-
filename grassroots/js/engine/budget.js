@@ -458,11 +458,11 @@ GR.budget = (function () {
     if (b.prov.bud.bondShare != null) J.F.bondShare = b.prov.bud.bondShare;
     if (b.prov.bud.surplusTo) J.F.surplusTo = b.prov.bud.surplusTo;
     // An extra debt payment: the debt falls now; the money left unspent refills the reserve as the year runs.
+    // The extra debt payment is made a quarter at a time out of the year's money, not the reserve.
     const dp = Math.min(b.prov.bud.debtPay || 0, J.F.debt);
     if (dp > 0) {
-      J.F.debt -= dp; J.F.reserve -= dp;
-      if (J.F.reserve < 0) { J.F.debt += -J.F.reserve; J.F.reserve = 0; }
-      GR.sim.news(s, `The FY${b.fy} budget pays down ${U.money(dp)} of ${J.name}'s debt, saving about ${U.money(dp * (J.F.mac.effRate / 100 + 0.05))} a year in debt service.`, 'gov');
+      J.F.xpay = { amt: dp, q: 4 };
+      GR.sim.news(s, `The FY${b.fy} budget pays down ${U.money(dp)} of ${J.name}'s debt over the year, saving about ${U.money(dp * (J.F.mac.effRate / 100 + 0.05))} a year in debt service.`, 'gov');
     }
     // Agencies that were turned down say so.
     if (bud.agFy === b.fy) (bud.agReq || []).map((r) => Object.assign(r, { got: reqShare(r, amt, b.prov.bud.cs) })).filter((r) => r.got < 0.3 && r.ask > 0).sort((x, y) => y.ask - x.ask).slice(0, 2)
@@ -568,6 +568,35 @@ GR.budget = (function () {
   // How much of each request a budget funds (0 … 1).
   function reqShare(r, amt, cs) { return r.ask > 0 ? U.clamp(((amt[r.k] || 0) - (cs[r.k] || r.base)) / r.ask, 0, 1) : 0; }
 
+  // ---------- Closing the books ----------
+  // At the end of each fiscal year: where the surplus went (or what covered the deficit), and, for
+  // a governor or mayor, what to do with money that piled up.
+  function yearEnd(s, J) {
+    const F = J.F;
+    const yr = F.yr;
+    F.yr = null;
+    if (!yr) return;
+    const net = yr.sur - yr.def;
+    const parts = [yr.toRes > 1 ? `${U.money(yr.toRes)} into the rainy-day fund` : '', yr.toDebt > 1 ? `${U.money(yr.toDebt)} toward the debt` : '', yr.owed > 1 ? `${U.money(yr.owed)} on unplanned costs` : ''].filter(Boolean);
+    const draws = [yr.fromRes > 1 ? `${U.money(yr.fromRes)} drawn from the rainy-day fund` : '', yr.borrow > 1 ? `${U.money(yr.borrow)} borrowed` : ''].filter(Boolean);
+    const msg = `${J.name} closes the fiscal year with a ${net >= 0 ? `${U.money(net)} surplus` : `${U.money(-net)} deficit`}${parts.length ? `: ${parts.join(', ')}` : ''}${draws.length ? `${parts.length ? '; ' : ': '}${draws.join(', ')}` : ''}. The rainy-day fund went from ${U.money(yr.res0)} to ${U.money(F.reserve)}; the debt from ${U.money(yr.debt0)} to ${U.money(F.debt)}.`;
+    GR.sim.news(s, msg, 'gov');
+    const ex = G().execOf(s, J.k);
+    if (!ex || !ex.isPlayer) return;
+    const banked = Math.max(0, Math.min(yr.toRes, F.reserve));
+    if (banked < FX().totals(J).spend * 0.002) { GR.sim.msgInbox(s, `${J.name} closes the books`, msg); return; }
+    const tax = J.k === 'state' ? (F.tax.sales != null ? 'sales' : 'mid') : 'prop';
+    GR.scenes.post(s, { jur: J.k, kicker: `Budget office · ${J.name}`, title: `The year ends ${U.money(banked)} ahead`,
+      text: `${msg}\n\nThe ${U.money(banked)} that went into the rainy-day fund this year is yours to direct. Leave it there, use it to pay down debt, or send it back.`,
+      choices: [
+        { label: `Keep it in the rainy-day fund (now ${U.money(F.reserve)})`, fx: {}, res: 'The cushion grows. Rating agencies approve.' },
+        F.debt > 0 ? { label: `Pay down ${U.money(Math.min(banked, F.debt))} of debt`, fx: {}, run: 'yeDebt', args: { jur: J.k, amt: Math.min(banked, F.debt) } } : null,
+        { label: `A one-time ${J.k === 'state' ? 'tax' : 'property tax'} rebate of ${U.money(banked)}`, fx: { app: 2, pw: { taxpayers: 4 } }, run: 'yeRebate', args: { jur: J.k, amt: banked } },
+        { label: 'Fund one-time construction projects with it', fx: { pw: { business: 2, labor: 2 } }, run: 'yeBuild', args: { jur: J.k, amt: banked } },
+      ].filter(Boolean) });
+    void tax;
+  }
+
   // ---------- Mid-year shortfalls ----------
   // When revenue falls short mid-year, executives act: across-the-board cuts, hiring freezes and
   // delayed projects, a revenue package sent to the legislature, or riding it out on the reserve.
@@ -625,6 +654,9 @@ GR.budget = (function () {
   }
 
   if (GR.scenes) Object.assign(GR.scenes.RUN, {
+    yeDebt: (s, a) => { const F = s.jur[a.jur].F; const x = Math.min(a.amt, F.reserve, F.debt); F.reserve -= x; F.debt -= x; GR.sim.news(s, `${s.jur[a.jur].name} uses ${U.money(x)} of last year's surplus to pay down debt.`, 'gov'); return `The debt falls ${U.money(x)}, saving about ${U.money(x * (F.mac.effRate / 100 + 0.05))} a year.`; },
+    yeRebate: (s, a) => { const F = s.jur[a.jur].F; const x = Math.min(a.amt, F.reserve); F.reserve -= x; F.mac.gap += x / Math.max(1, F.mac.gdp) * 30; GR.sim.news(s, `${s.jur[a.jur].name} sends ${U.money(x)} of last year's surplus back to taxpayers.`, 'gov'); return `Checks go out: ${U.money(x)} back to taxpayers.`; },
+    yeBuild: (s, a) => { const J = s.jur[a.jur]; const x = Math.min(a.amt, J.F.reserve); J.F.reserve -= x; if (J.F.crises.infra) J.F.crises.infra.s = U.clamp(J.F.crises.infra.s - x / Math.max(1, FX().totals(J).spend) * 120, 0, 100); J.F.mac.K.infra = U.clamp(J.F.mac.K.infra + x / Math.max(1, FX().totals(J).spend) * 20, 30, 300); return `${U.money(x)} goes to roads, buildings and repairs over the next few years.`; },
     sfCut: (s, a) => { const f = trim(s.jur[a.jur], a.amt, false); GR.sim.news(s, `${s.pols.me.fn} ${s.pols.me.ln} orders ${(f * 100).toFixed(1)}% across-the-board cuts to close the budget gap.`, 'gov'); return `Agencies cut operations ${(f * 100).toFixed(1)}%. Unions and agency heads are unhappy; the budget office breathes easier.`; },
     sfFreeze: (s, a) => { trim(s.jur[a.jur], a.amt, true); GR.sim.news(s, `${s.pols.me.fn} ${s.pols.me.ln} freezes hiring and delays construction to close the budget gap.`, 'gov'); return 'Hiring is frozen and projects slip a year. It closes part of the gap without layoffs.'; },
     sfRev: (s, a) => { const b = revenuePlan(s, a.jur, U.chance(0.5) ? 'liberal' : 'centrist'); if (b) GR.sim.news(s, `${s.pols.me.fn} ${s.pols.me.ln} sends lawmakers the ${b.title}.`, 'gov'); },
@@ -685,5 +717,5 @@ GR.budget = (function () {
     return out;
   }
 
-  return { debtFlow, bondShare, agencyRequests, reqShare, shortfall, caucusCheck, CAT, REGIONS, has, itemVeto, geoOf, regionOf, regionName, ensure, current, lines, lineOf, outlook, cash, taxYield, balance, regional, memberScore, compile, propose, move, chairMark, rework, aiItemVeto, applyItemVetoes, onEnact, addRequest, makeBill, askItem, moveOptions, disc };
+  return { yearEnd, debtFlow, bondShare, agencyRequests, reqShare, shortfall, caucusCheck, CAT, REGIONS, has, itemVeto, geoOf, regionOf, regionName, ensure, current, lines, lineOf, outlook, cash, taxYield, balance, regional, memberScore, compile, propose, move, chairMark, rework, aiItemVeto, applyItemVetoes, onEnact, addRequest, makeBill, askItem, moveOptions, disc };
 })();
