@@ -195,6 +195,7 @@ function advisories() {
     if (b && b.status === "rejected") out.push(b.lapsed ? `💰 Your late FY${b.fy} budget was rejected. Revise and resend it; you're frozen at last year's levels until it passes.` : `💰 The ${bodyShort()} rejected your budget. Revise it before ${dateStr(b.start)}.`);
     if (b && b.lapsed && b.status === "submitted") out.push(`💰 Your late FY${b.fy} budget is with the ${bodyShort()}; the vote is ${dateStr(b.vote)}.`);
     if (Jx.fin.cr) out.push("⏸️ You're running on last year's budget. Pass a new one.");
+    if (G.level !== "nation" && G.capital >= 3) { const open = Object.keys(GRANT_PROGRAMS).filter((k) => !grantWait(k) && !(G.grantApps || []).some((a) => a.type === k && a.lvl === G.level)); if (open.length) out.push(`🏗️ Federal grants are open for ${open.map((k) => GRANT_PROGRAMS[k].n.toLowerCase()).join(", ")}. Apply on ${G.level === "city" ? "The City" : "The State"} tab and pick the project when you win.`); }
     const desk = G.bills.filter((x) => x.stage === "desk" && x.sponsor !== "me").length;
     if (desk) out.push(`🖋️ ${desk} bill${desk > 1 ? "s" : ""} on your desk.`);
     if (G.demands.length) out.push(`📞 ${G.demands.length} member${G.demands.length > 1 ? "s" : ""} waiting on an answer (${bodyShort()} tab).`);
@@ -330,6 +331,7 @@ function viewIssues() {
             ${meter(I.dep ? "Exposure" : "How bad it is", sev / 100, false, Math.round(sev))}
             <p class="small">${esc(I.d)}${issueStat(I) ? ` <b>${esc(issueStat(I))}</b>.` : ""}</p>
             ${trend}
+            ${grantRow(I.m)}
             ${I.k === "schools" && schoolGov() ? `<p class="small">🏫 <b>Who runs the schools:</b> ${esc(schoolGov().d)}${schoolCtl() === "mayor" && schoolGov().ctl !== "mayor" ? " <b>Under your new mayoral control, you now run them.</b>" : ""}</p>` : ""}
             ${lv || "<p class='tiny muted'>Nothing you can do about it at this level, except money in the budget.</p>"}
             <div class="row"><button class="mini ${on ? "on" : ""}" data-act="prio" data-k="${I.k}">${on ? "Drop as a priority" : "Make it a priority"}</button></div></section>`;
@@ -494,7 +496,7 @@ function viewPlace() {
     }).join("");
     const areas = G.level === "city" ? CITY().hoods.slice(0, Math.min(CITY().hoods.length, 20)).map((h) => { const p = bodyMembers().find((m) => m.area === h); return `<div class="minister"><span>${esc(h)}</span><span class="tiny">${p ? `${partyDot(p.party)}${esc(p.name)} ${relBadge(p.loyal)}` : ""}</span></div>`; }).join("")
         : G.level === "state" ? STATE().cities.concat([CITY().name]).map((c) => `<div class="minister"><span>${esc(c)}</span></div>`).join("") : Object.keys(STATES).map((s) => `<span class="badge">${s}</span>`).join(" ");
-    return `<div class="cols2"><div>${panel("What's moving conditions", drivers)}</div><div>${grantsPanel(Jx)}${panel(G.level === "city" ? "Neighborhoods and their members" : G.level === "state" ? "Cities" : "States", areas)}${G.level === "city" ? panel("Hazards", CITY().hazards.map((h) => `<span class="badge">${h}</span>`).join(" ")) : ""}</div></div>`;
+    return `<div class="cols2"><div>${grantsPanel(Jx)}${panel("What's moving conditions", drivers)}</div><div>${panel(G.level === "city" ? "Neighborhoods and their members" : G.level === "state" ? "Cities" : "States", areas)}${G.level === "city" ? panel("Hazards", CITY().hazards.map((h) => `<span class="badge">${h}</span>`).join(" ")) : ""}</div></div>`;
 }
 
 // ── Power ───────────────────────────────────────────────────────────
@@ -566,4 +568,14 @@ function grantsPanel(Jx) {
         return `<div class="driver">${meter(`${done ? "✅" : "🚧"} ${p.name}`, frac, true, done ? "Open" : `${Math.round(frac * 100)}%`)}<p class="tiny muted">${money(p.amt)} · ${esc(p.prog)} · ${metricName(p.m, G.level)} ${done ? "+" + fmt(p.boost, 1) : `+${fmt(p.boost, 1)} when it opens around ${dateStr(p.done)}${G.t - p.start > 8 ? " (construction detours −0.4 for now)" : ""}`}</p></div>`;
     }).join("");
     return panel("Federal grants & projects", `<p class="tiny muted">Apply for federal money. Win, and you choose the project and the ${G.level === "city" ? "neighborhood" : "city"}; the ${G.level === "city" ? "city" : "state"} puts up a ${Math.round(MATCH * 100)}% local match. Finished projects lift conditions for good. Relations with the White House and your priorities help your odds.</p>${btns}${pj ? `<h4>Projects</h4>${pj}` : ""}`);
+}
+
+// A grant button on the matching issue card.
+function grantRow(m) {
+    if (G.level === "nation") return "";
+    const k = Object.keys(GRANT_PROGRAMS).find((x) => GRANT_PROGRAMS[x].m === m);
+    if (!k) return "";
+    const Gp = GRANT_PROGRAMS[k], w = grantWait(k), pend = (G.grantApps || []).some((a) => a.type === k && a.lvl === G.level);
+    const pj = (J().projects || []).filter((p) => p.type === k && G.t < p.done).length;
+    return `<div class="row small" style="margin:4px 0"><span style="flex:1">🏛️ <b>Federal ${esc(Gp.n.toLowerCase())} grant</b> <span class="tiny muted">${pend ? "application pending" : w ? `next round in ${w} weeks` : `odds about ${Math.round(grantOdds(k) * 100)}%`}${pj ? ` · ${pj} project${pj > 1 ? "s" : ""} under construction` : ""}</span></span><button class="mini" data-act="applyGrant" data-k="${k}" ${G.capital < 3 || w || pend ? "disabled" : ""}>Apply (3)</button></div>`;
 }

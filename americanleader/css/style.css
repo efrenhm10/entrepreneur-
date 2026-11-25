@@ -283,7 +283,12 @@ tr.dim { opacity: .5; }
     .choice-list.two { grid-template-columns: 1fr; }
     .screen { padding: 12px; }
     #view { padding: 10px; }
-    .hud-left { min-width: 0; }
+    #hud { position: static; gap: 8px; padding: 8px 10px; }
+    .hud-left { min-width: 0; width: 100%; }
+    .hud-stats { flex: 1 1 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+    .hstat { min-width: 0; padding: 2px 6px; }
+    .hstat small { font-size: 9px; letter-spacing: .3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .hstat b { font-size: 12px; white-space: nowrap; }
     .hud-right { width: 100%; }
     .hud-right button { flex: 1; }
     .ind-table { display: block; overflow-x: auto; }
