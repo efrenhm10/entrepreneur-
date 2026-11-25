@@ -211,6 +211,7 @@ function enact(b, out, overridden) {
     if (pol.cost < 0) log(`${pol.n}: raises about ${money(-pol.cost * J().fin.base)} a year.`, "good");
     if (out) out.push([overridden ? "bad" : "good", `${b.title} is now law.`]);
     log(`${b.title} becomes law.`, "good");
+    if (b.sponsor === "me" && !overridden) capitalBonus(3);
     b.changes = ch;
 }
 function repeal(k) { const i = J().laws.findIndex((l) => l.k === k); if (i >= 0) J().laws.splice(i, 1); }

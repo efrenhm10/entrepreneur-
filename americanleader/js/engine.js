@@ -275,13 +275,17 @@ function groupsReact(tags, mult = 1) {
 }
 
 // ── Political capital ───────────────────────────────────────────────
+// Political capital comes in every week: more when you're popular and well staffed.
 function capitalIncome() {
     let c = 2.5 + (G.approval - 50) / 25;
     Object.entries(J().team).forEach(([role, id]) => { const p = G.people[id]; const R = TEAM[G.level].find((x) => x.k === role); if (p && R) c += R.cap * (p.skill / 4); });
     if (G.me.traits.includes("workhorse")) c += 1;
     return Math.max(0.5, c);
 }
-const capitalCap = () => 30 + (G.level === "state" ? 10 : G.level === "nation" ? 20 : 0);
+const capitalWeekly = () => capitalIncome() * 0.55;
+const capitalCap = () => 40 + (G.level === "state" ? 10 : G.level === "nation" ? 20 : 0);
+// Wins build momentum.
+function capitalBonus(v, why) { G.capital = clamp(G.capital + v, 0, capitalCap()); if (why) log(`${why}: +${v} political capital.`, "good"); }
 
 // ── Overseers: the governor and the president ───────────────────────
 function makeOverseers() {

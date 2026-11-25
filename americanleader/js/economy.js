@@ -255,6 +255,7 @@ function makeOffer(id) {
     if (t.cost > J().fin.base * 0.01 || p.offer.abate >= 3) { groupMove("progressives", -5); G.press -= 2; }
     if (p.offer.permits) groupMove("environment", -3);
     G.approval += Math.min(3, p.jobs / employed() * 250);
+    capitalBonus(4);
     log(`${p.name} will build in ${placeName()}: ${p.jobs.toLocaleString()} jobs at about $${p.wage}/hr${t.cost ? `, with ${money(t.cost)} in incentives` : ""}.`, "good");
     return `${p.name} is coming: ${p.jobs.toLocaleString()} jobs. Construction starts now.`;
 }

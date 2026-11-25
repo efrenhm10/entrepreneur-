@@ -134,7 +134,7 @@ function renderHud() {
         <div class="hud-stats">
             ${stat("Date", dateStr(), "date")}
             ${stat("Approval", Math.round(G.approval) + "%", lvl(G.approval, 55, 38), "How voters rate you")}
-            ${stat("Capital", Math.floor(G.capital), "capital", `Political capital. +${fmt(capitalIncome(), 1)} a month.`)}
+            ${stat("Capital", `${Math.floor(G.capital)} <span class="tiny muted">+${fmt(capitalWeekly(), 1)}/wk</span>`, "capital", `Political capital: the clout you spend on bills, deals, lobbying and pitches. +${fmt(capitalWeekly(), 1)} a week (more when your approval is high and your team is full), plus bonuses when you win: a bill signed, a budget passed, a company landed. Max ${capitalCap()}.`)}
             ${stat("Budget", (bal >= 0 ? "+" : "") + money(bal), bal >= 0 ? "good" : "bad", "Projected surplus or deficit this year", "budget")}
             ${G.level === "nation" ? stat("Debt", money(f.debt), "", "National debt", "budget") : stat("Rainy day", money(f.reserve), f.reserve < 0 ? "bad" : "", "Reserve fund", "budget")}
             ${stat("Rating", f.rating, f.ratingScore >= 10 ? "good" : f.ratingScore <= 5 ? "bad" : "", "Credit rating")}

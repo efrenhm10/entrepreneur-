@@ -56,6 +56,7 @@ function week() {
     const Jx = J();
     weekConditions();
     weekApproval();
+    G.capital = clamp(G.capital + capitalWeekly(), 0, capitalCap());
     // Money in and out.
     const bal = balance(Jx);
     if (G.level === "nation") Jx.fin.debt -= bal / 52; else Jx.fin.reserve += bal / 52;
@@ -77,7 +78,6 @@ function ensureEcon(Jx = J()) {
 function month() {
     ensureEcon();
     econMonth();
-    G.capital = clamp(G.capital + capitalIncome(), 0, capitalCap());
     monthGroups();
     // Demands come due.
     G.demands.filter((d) => d.due <= G.t).forEach((d) => refuseDemand(d.id, true));
@@ -201,6 +201,7 @@ function voteBudget() {
         const taxUp = sum(Jx.fin.lines, (l) => (l.rate - 1) * l.share);
         if (taxUp > 0.005) { groupsReact(["taxup"], taxUp * 40); G.approval -= taxUp * 60; }
         if (taxUp < -0.005) { groupsReact(["taxdown"], -taxUp * 40); G.approval += -taxUp * 30; }
+        capitalBonus(5, "Budget passed");
         log(`The FY${b.fy} budget passes (${r.map((x) => `${x.ch.short} ${x.yes}–${x.total - x.yes}`).join(", ")}).`, "good");
         toast(`FY${b.fy} budget passes`, r.map((x) => `${x.ch.short} ${x.yes}–${x.total - x.yes}`).join(" · "), []);
         bodyMembers().forEach((p) => { if (budgetScore(p) < -0.4) p.grudge += 0.5; });
@@ -367,6 +368,7 @@ function raceWon() {
     if (r.reelect) {
         G.terms++; G.termsHere++;
         G.honeymoon = 12;
+        capitalBonus(15);
         G.approval += 4;
         G.flags.rival = null; G.flags.rivalOut = null;
         queueScene("reelected");
