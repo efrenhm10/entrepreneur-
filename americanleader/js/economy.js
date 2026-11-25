@@ -151,8 +151,8 @@ function econMonth() {
     // Construction finishes.
     ec.building.filter((b) => G.t >= b.done).forEach((b) => {
         ec.building = ec.building.filter((x) => x !== b);
-        if (b.asset) { ec.assets[`${b.sector}:${b.asset}`] = true; log(`${b.name} opens.`, "good"); toast(`${b.name} opens`, `${SECTORS[b.sector].n} gets a boost.`, []); groupMove("trades", 2); }
-        if (b.firm) { const f = ec.firms.find((x) => x.id === b.firm); if (f) { f.open = true; log(`${f.name} opens: ${f.jobs.toLocaleString()} jobs at about $${f.wage}/hr.`, "good"); toast(`${f.name} opens`, `${f.jobs.toLocaleString()} jobs.`, []); G.approval += Math.min(3, f.jobs / employed() * 300); } }
+        if (b.asset) { ec.assets[`${b.sector}:${b.asset}`] = true; log(`${b.name} opens.`, "good"); groupMove("trades", 2); queueScene("ribbon", { name: b.name, sector: b.sector, level: G.level }); }
+        if (b.firm) { const f = ec.firms.find((x) => x.id === b.firm); if (f) { f.open = true; log(`${f.name} opens: ${f.jobs.toLocaleString()} jobs at about $${f.wage}/hr.`, "good"); G.approval += Math.min(3, f.jobs / employed() * 300); queueScene("ribbon", { name: f.name, sector: f.sector, firm: f.id, level: G.level }); } }
     });
     // Startups grow, or don't.
     ec.startups.forEach((s) => {
@@ -213,6 +213,7 @@ function prospectParts(p) {
     const add = (l, v) => { if (Math.abs(v) >= 0.005) parts.push([l, v]); };
     const dbl = (k) => (p.want === k ? 2 : 1);
     add("Base interest", 0.18);
+    add("Buzz from your ribbon cuttings", (Jx.ec.buzz || {})[p.sector] || 0);
     add(`Fit for ${SECTORS[p.sector].n.toLowerCase()} (${"★".repeat(Jx.ec.fit[p.sector])})`, (Jx.ec.fit[p.sector] - 2) * 0.04);
     let inc = 0; Object.entries(OFFER).forEach(([k, o]) => { inc += o.odds[p.offer[k]] * (o.want ? dbl(o.want) : 1); }); add("Your offer", inc);
     sectorGaps(p.sector).forEach((g) => add(`${metricName(g.m, G.level)} too weak (${g.now} vs ${g.v})`, -0.05));

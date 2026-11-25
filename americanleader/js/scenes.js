@@ -331,3 +331,32 @@ SCENES.ballot = (a) => {
     return S("🗳️", kick("Ballot measure"), `Voters decide: ${pol.n}`, `The ${bodyShort()} passed it, but it needs voter approval. ${pol.payer ? `Opponents, led by ${pol.payer}, are spending heavily against it.` : ""} Early polling has it at about **${Math.round(clamp(base, 0.1, 0.9) * 100)}%**.`,
         [ch("Campaign hard for it.", { cap: -5, funds: -Math.min(G.funds, 2e5) }, "", { run: () => decide(0.07), req: capOK(5) }), ch("Let the voters decide.", {}, "", { run: () => decide(0) })]);
 };
+
+// ── Ribbon cuttings: you built it, now take the stage ──────────────
+SCENES.ribbon = (a) => {
+    const Jx = J(), ec = Jx.ec;
+    if (a.level !== G.level || !ec) return S("✂️", "", "The ribbon is cut", "Your successor cuts the ribbon on a project you started.", [ch("OK", {}, "")]);
+    const f = a.firm && ec.firms.find((x) => x.id === a.firm);
+    const Sec = SECTORS[a.sector];
+    // The local member whose district it sits in, picked once.
+    if (!a.member) { const m = pick(bodyMembers()); a.member = m ? m.id : null; }
+    const m = a.member && P(a.member);
+    const where = m && m.area ? m.area : placeName();
+    const big = f && f.abateTo > G.t + 52 * 5;
+    const boss = G.level === "city" ? G.gov : G.level === "state" ? G.pres : null;
+    const bossName = G.level === "city" ? govName() : "the President";
+    const sameSide = boss && boss.party === G.me.party;
+    const text = f
+        ? `${f.name} opens its doors in ${where}: **${f.jobs.toLocaleString()} jobs** at about $${f.wage} an hour. There's a stage, a giant pair of scissors and every TV station in town. The CEO speaks first and thanks “our partners in ${placeName()}.” ${m ? `${m.name}, who represents the area, is in the front row hoping to be called up.` : ""}${big ? " Outside the fence, a few protesters hold signs about the tax break." : ""}\n\nThen it's your turn at the podium.`
+        : `The **${a.name}** is finished, ${a.over == null ? (a.over = chance(0.3)) : a.over, a.over ? "a little over budget, but open" : "on time"}. Hard hats, union crews, neighbors and cameras crowd in front of a ribbon in ${where}. ${Sec.i} ${Sec.n} leaders say it puts ${placeName()} on the map. ${m ? `${m.name}, who represents the area, fought for it too.` : ""}\n\nYou step up to the podium.`;
+    const credit = f ? `“I promised ${placeName()} good jobs, and today ${f.name} proves we delivered.”` : `“They said ${placeName()} couldn't build big things anymore. Look behind me.”`;
+    const choices = [
+        ch(`Take the credit. ${credit}`, { a: 1.5, press: 4, cap: 3, ...(m ? { who: { [m.id]: -8 } } : {}), ...(big ? { g: { progressives: -2 } } : {}) }, `The clip leads the evening news.${m ? ` ${m.name} isn't mentioned, and notices.` : ""}`),
+        ch(`Thank the workers. “Every beam here was set by ${placeName()} hands.”`, { a: 1, press: 2, g: { trades: 4, unions: 3 } }, "The building trades cheer loudest. Their newsletter runs your photo on the cover."),
+    ];
+    if (m) choices.push(ch(`Call ${m.name} up to cut the ribbon with you.`, { a: 0.6, press: 1, who: { [m.id]: 15 }, body: 2 }, `${m.name} beams. You'll get that vote back someday.`));
+    if (boss) choices.push(ch(`Invite ${bossName} to share the stage.`, { a: sameSide ? 0.5 : 0.2, press: 1, [G.level === "city" ? "gov" : "pres"]: 10 }, sameSide ? `${bossName} flies in and takes half the credit, but owes you one.` : `${bossName} shows up, praises “bipartisan partnership” and leaves before the Q&A. Relations thaw a little.`));
+    choices.push(ch(`Use the moment to pitch ${placeName()} to other ${Sec.n.toLowerCase()} companies (better odds of landing the next one).`, { press: 2 }, "", { run: () => { ec.buzz = ec.buzz || {}; ec.buzz[a.sector] = Math.min(0.12, (ec.buzz[a.sector] || 0) + 0.05); ec.sec[a.sector] = (ec.sec[a.sector] || 0) + 0.2; return "Site-selection consultants take note. Companies in the sector look harder at " + placeName() + "."; } }));
+    choices.push(ch("Skip it and send a deputy.", { press: -1, cap: 1 }, "The papers run a photo of the ribbon with an empty spot where you should be."));
+    return S("✂️", kick("Ribbon cutting"), f ? `${f.name} opens` : `Opening day: ${a.name}`, text, choices);
+};
