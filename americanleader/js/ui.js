@@ -330,6 +330,7 @@ function viewIssues() {
             ${meter(I.dep ? "Exposure" : "How bad it is", sev / 100, false, Math.round(sev))}
             <p class="small">${esc(I.d)}${issueStat(I) ? ` <b>${esc(issueStat(I))}</b>.` : ""}</p>
             ${trend}
+            ${I.k === "schools" && schoolGov() ? `<p class="small">🏫 <b>Who runs the schools:</b> ${esc(schoolGov().d)}${schoolCtl() === "mayor" && schoolGov().ctl !== "mayor" ? " <b>Under your new mayoral control, you now run them.</b>" : ""}</p>` : ""}
             ${lv || "<p class='tiny muted'>Nothing you can do about it at this level, except money in the budget.</p>"}
             <div class="row"><button class="mini ${on ? "on" : ""}" data-act="prio" data-k="${I.k}">${on ? "Drop as a priority" : "Make it a priority"}</button></div></section>`;
     }).join("");
@@ -426,7 +427,7 @@ function viewBudget() {
     if (editing) {
         const n = draftNumbers();
         const tal = withDraft(() => budgetTally());
-        const depts = DEPTS[G.level].map((d) => { const v = b.depts[d.k]; return `<div class="budget-row"><span>${d.i} ${d.n}</span><span><button class="mini" data-act="bdept" data-k="${d.k}" data-d="-0.05">−5%</button><button class="mini" data-act="bdept" data-k="${d.k}" data-d="-0.01">−1</button><button class="mini" data-act="bdept" data-k="${d.k}" data-d="0.01">+1</button><button class="mini" data-act="bdept" data-k="${d.k}" data-d="0.05">+5%</button></span><b class="${v > 1.001 ? "good" : v < 0.999 ? "bad" : ""}">${Math.round(v * 100)}%</b><span class="tiny muted">${Object.keys(d.m).map((k) => METRICS[k].i).join("")}</span></div>`; }).join("");
+        const depts = deptList().map((d) => { const v = b.depts[d.k] != null ? b.depts[d.k] : 1; return `<div class="budget-row"><span>${d.i} ${d.n}</span><span><button class="mini" data-act="bdept" data-k="${d.k}" data-d="-0.05">−5%</button><button class="mini" data-act="bdept" data-k="${d.k}" data-d="-0.01">−1</button><button class="mini" data-act="bdept" data-k="${d.k}" data-d="0.01">+1</button><button class="mini" data-act="bdept" data-k="${d.k}" data-d="0.05">+5%</button></span><b class="${v > 1.001 ? "good" : v < 0.999 ? "bad" : ""}">${Math.round(v * 100)}%</b><span class="tiny muted">${Object.keys(d.m).map((k) => METRICS[k].i).join("")}</span></div>`; }).join("");
         const rates = f.lines.map((l, i) => { const ok = l.ctl === "council"; return `<div class="budget-row"><span class="small">${esc(l.n)}</span><span>${ok ? `<button class="mini" data-act="brate" data-i="${i}" data-d="-0.02">−2%</button><button class="mini" data-act="brate" data-i="${i}" data-d="0.02">+2%</button>` : `<span class="tiny muted">${{ voter: "voters must approve", state: "needs state law", none: "fixed" }[l.ctl]}</span>`}</span><b class="${b.rates[i] > 1.001 ? "bad" : b.rates[i] < 0.999 ? "good" : ""}">${Math.round(b.rates[i] * 100)}%</b><span class="tiny muted">${money(l.share * f.base * Math.pow(1.03, years()))}</span></div>`; }).join("");
         draft = panel(`Your FY${b.fy} budget ${b.status === "rejected" ? '<span class="pill">Rejected — revise</span>' : ""}${b.lapsed ? ' <span class="pill">Late</span>' : ""}`, `${b.lapsed ? `<p class="small bad">The fiscal year started without a budget. Departments are frozen at last year's levels until this passes; send it to the ${esc(bodyShort())} as soon as it balances.</p>` : ""}
             <div class="row"><div>Revenue <b>${money(n.R)}</b></div><div>Spending <b>${money(n.S)}</b></div><div>From reserve <b>${money(n.draw)}</b></div><div>Balance <b class="${n.gap >= 0 ? "good" : "bad"}">${n.gap >= 0 ? "+" : ""}${money(n.gap)}</b></div></div>
@@ -439,7 +440,8 @@ function viewBudget() {
             <h4>Whip count</h4>${tal.map((x) => `<p class="small">${esc(x.ch.short)}: <b class="${x.pass ? "good" : "bad"}">${x.yes}–${x.total - x.yes}</b> (need ${x.need})</p>`).join("")}
             <div class="row"><button class="primary" data-act="submitBudget">Send it to the ${esc(bodyShort())}</button><span class="tiny muted">Due ${dateStr(b.due)} · fiscal year starts ${dateStr(b.start)}</span></div>`, "bill");
     } else if (b && b.status === "submitted") draft = panel(`FY${b.fy} budget`, `<p class="small">With the ${esc(bodyShort())}. The vote is ${dateStr(b.vote)}.</p>${withDraft(() => budgetTally()).map((x) => `<p class="small">${esc(x.ch.short)}: <b class="${x.pass ? "good" : "bad"}">${x.yes}–${x.total - x.yes}</b> (need ${x.need})</p>`).join("")}`);
-    const depts = DEPTS[G.level].map((d) => `<div class="row small"><span style="flex:1">${d.i} ${d.n}</span><b>${Math.round((Jx.depts[d.k] || 1) * 100)}%</b></div>`).join("");
+    const sg = schoolGov(Jx);
+    const depts = deptList().map((d) => `<div class="row small"><span style="flex:1">${d.i} ${d.n}</span><b>${Math.round((Jx.depts[d.k] || 1) * 100)}%</b></div>`).join("") + (sg && !deptList().some((d) => d.k === "schools") ? `<p class="tiny muted">🏫 No school line: ${esc(sg.n)} ${sg.ctl === "state" ? "is run by the state" : sg.ctl === "county" ? "is run county-wide" : "has its own budget and taxes"}. See Major Issues for what the city can still do.</p>` : "");
     const next = b && b.start > G.t ? "" : `<p class="small muted">Budget season opens about three months before the fiscal year starts.</p>`;
     return `<div class="cols2"><div>${draft}${panel("This year's money", `
         <div class="row"><div>Revenue<br><b>${money(R)}</b></div><div>Spending<br><b>${money(Sp)}</b></div><div>${R - Sp >= 0 ? "Surplus" : "Deficit"}<br><b class="${R - Sp >= 0 ? "good" : "bad"}">${money(R - Sp)}</b></div></div>
@@ -486,7 +488,7 @@ function viewPlace() {
     const tg = targets(Jx);
     const drivers = MKEYS.map((k) => {
         const laws = Jx.laws.filter((l) => POLICY[l.k] && POLICY[l.k].fx[k]).map((l) => `${POLICY[l.k].n} ${sgn(POLICY[l.k].fx[k])}`);
-        const depts = DEPTS[G.level].filter((d) => d.m[k] && Math.abs((Jx.depts[d.k] || 1) - 1) > 0.005).map((d) => `${d.n} funding ${Math.round(((Jx.depts[d.k] || 1) - 1) * 100)}%`);
+        const depts = deptList().filter((d) => d.m[k] && Math.abs((Jx.depts[d.k] || 1) - 1) > 0.005).map((d) => `${d.n} funding ${Math.round(((Jx.depts[d.k] || 1) - 1) * 100)}%`);
         return `<div class="driver">${meter(`${METRICS[k].i} ${metricName(k, G.level)}`, Jx.m[k] / 100, true, `${Math.round(Jx.m[k])} → ${Math.round(tg[k])}`)}<p class="tiny muted">${[...laws, ...depts].join(" · ") || "Nothing pushing it yet."}</p></div>`;
     }).join("");
     const areas = G.level === "city" ? CITY().hoods.slice(0, Math.min(CITY().hoods.length, 20)).map((h) => { const p = bodyMembers().find((m) => m.area === h); return `<div class="minister"><span>${esc(h)}</span><span class="tiny">${p ? `${partyDot(p.party)}${esc(p.name)} ${relBadge(p.loyal)}` : ""}</span></div>`; }).join("")
@@ -515,7 +517,8 @@ function viewTeam() {
         const p = P(J().team[r.k]);
         const cands = (G.cands[r.k] || []).filter((id) => id !== J().team[r.k]).map(P).filter(Boolean);
         return panel(r.n, `<p class="tiny muted">${esc(r.d)}</p>${p ? `<div class="minister"><span><b>${esc(p.name)}</b> <span class="stars">${"★".repeat(p.skill)}</span><br><span class="tiny muted">${esc(p.blurb || "")} · ties: ${(p.ties || []).map((k) => GROUPS[k] ? GROUPS[k].n : k).join(", ")}</span></span><button class="mini danger" data-act="fire" data-r="${r.k}">Fire</button></div>` : `<p class="bad small">Vacant</p>`}
-            ${cands.map((c) => `<div class="minister"><span>${esc(c.name)} <span class="stars">${"★".repeat(c.skill)}</span><br><span class="tiny muted">${esc(c.blurb || "")}${c.scandal > 0.2 ? ' · <span class="bad">baggage</span>' : ""}</span></span><button class="mini" data-act="appoint" data-r="${r.k}" data-id="${c.id}" ${G.capital < 2 ? "disabled" : ""}>Appoint (2)</button></div>`).join("")}`);
+            ${cands.map((c) => `<div class="minister"><span>${esc(c.name)} <span class="stars">${"★".repeat(c.skill)}</span><br><span class="tiny muted">${esc(c.blurb || "")}${c.scandal > 0.2 ? ' · <span class="bad">baggage</span>' : ""}</span></span><button class="mini" data-act="appoint" data-r="${r.k}" data-id="${c.id}" ${G.capital < 2 ? "disabled" : ""}>Appoint (2)</button></div>`).join("")}
+            <div class="row"><button class="mini" data-act="search" data-r="${r.k}" ${G.capital < 1 ? "disabled" : ""}>🔍 Look for other candidates (1)</button></div>`);
     }).join("");
     return `<div class="cabinet-grid">${rows}</div>`;
 }

@@ -72,7 +72,7 @@ A("repealLaw", (el) => {
     toast("Repealed", pol.n, ch);
 });
 // Budget drafting.
-A("bdept", (el) => { const b = J().budget; b.depts[el.dataset.k] = clamp(Math.round((b.depts[el.dataset.k] + +el.dataset.d) * 100) / 100, 0.7, 1.3); });
+A("bdept", (el) => { const b = J().budget; b.depts[el.dataset.k] = clamp(Math.round(((b.depts[el.dataset.k] != null ? b.depts[el.dataset.k] : 1) + +el.dataset.d) * 100) / 100, 0.7, 1.3); });
 A("brate", (el) => { const b = J().budget, i = +el.dataset.i; b.rates[i] = clamp(Math.round((b.rates[i] + +el.dataset.d) * 100) / 100, 0.8, 1.3); });
 A("bpension", (el) => { J().budget.pensionPay = +el.dataset.v; });
 A("bdraw", (el) => { const b = J().budget; const step = Math.max(J().fin.base * 0.005, drawMax() / 8); b.draw = clamp(b.draw + +el.dataset.d * step, 0, drawMax()); });
@@ -114,8 +114,9 @@ A("debtPay", () => toast("Debt", payDownDebt(J().fin.base * 0.02), []));
 A("presser", () => { G.capital -= 2; toast("Press conference", "", applyFx({ press: 5, a: 0.5 })); });
 A("townhall", () => { G.capital -= 3; const k = pick(Object.keys(J().groups)); toast("Town hall", `${GROUPS[k].n} turn out in force.`, applyFx({ a: 1, g: { [k]: 4 } })); });
 // Team.
-A("fire", (el) => { const id = J().team[el.dataset.r]; delete J().team[el.dataset.r]; const p = P(id); if (p) (p.ties || []).forEach((k) => groupMove(k, -4)); toast("Fired", p ? p.name : "", []); });
-A("appoint", (el) => { if (G.capital < 2) return; G.capital -= 2; const p = appoint(el.dataset.r, el.dataset.id); toast("Appointed", p.name, []); });
+A("fire", (el) => { const id = J().team[el.dataset.r]; delete J().team[el.dataset.r]; const p = P(id); if (p) (p.ties || []).forEach((k) => groupMove(k, -4)); refreshCandidates(el.dataset.r); toast("Fired", p ? `${p.name} is out. A new slate of candidates applies.` : "", []); });
+A("search", (el) => { if (G.capital < 1) return; G.capital -= 1; refreshCandidates(el.dataset.r); toast("Search firm", "Three new candidates.", []); });
+A("appoint", (el) => { if (G.capital < 2) return; G.capital -= 2; const p = appoint(el.dataset.r, el.dataset.id); G.cands[el.dataset.r] = (G.cands[el.dataset.r] || []).filter((id) => id !== p.id); G.cands[el.dataset.r].push(newCandidate(el.dataset.r)); toast("Appointed", p.name, []); });
 // Campaigns.
 A("fundraise", () => { G.capital -= 2; const base = G.level === "city" ? 1.5e5 : G.level === "state" ? 1.5e6 : 3e7; const v = base * (1 + (G.me.skills.fundraising || 0) * 0.15) * (0.6 + G.approval / 100); G.funds += v; G.heat += 0.4; toast("Fundraiser", `You raise ${money(v)}.`, []); });
 A("rally", () => { const r = G.race; if (!r) return; G.capital -= 2; const v = 0.5 + (G.me.skills.charisma || 0) * 0.15 + (G.me.traits.includes("charismatic") ? 0.3 : 0); r.mom = Math.min(8, r.mom + v); toast("Rally", `A big crowd. Momentum +${fmt(v, 1)}.`, []); });

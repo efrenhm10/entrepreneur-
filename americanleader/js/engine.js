@@ -68,6 +68,7 @@ function makeCity(c) {
     const m = fullCityM(G.cityK);
     const Jx = { kind: "city", name: c.name, pop: c.pop, lean: c.lean, m: Object.assign({}, m), m0: Object.assign({}, m), dep: cityDependence(G.cityK), prio: [], shock: {}, depts: {}, fin, groups: {}, team: {}, laws: [], term: c.term, limit: c.limit, form: c.form, veto: c.veto, recall: c.recall, issues: c.issues };
     DEPTS.city.forEach((d) => { Jx.depts[d.k] = 1; });
+    Jx.depts.schools = 1;
     Object.keys(c.groups).forEach((k) => { if (GROUPS[k]) Jx.groups[k] = { w: c.groups[k], l: 50 + rint(-6, 6) }; });
     applyBackground(Jx);
     initEcon(Jx, CITY_ECON[G.cityK].inds);
@@ -117,11 +118,33 @@ function revenue(Jx = J()) {
     const econ = 1 + (Jx.m.economy - Jx.m0.economy) / 160;
     return f.base * Math.pow(1.03, years()) * econ * sum(f.lines, (l) => l.share * Math.pow(l.rate, 0.9)) + firmRevenue(Jx);
 }
+// Departments. In cities that pay for schools, the school line is carved out of the existing budget.
+function schoolGov(Jx = J()) { return Jx.kind === "city" ? SCHOOL_GOV[G.cityK] || { ctl: "board", n: "the school district", share: 0, d: "" } : null; }
+function schoolCtl(Jx = J()) { const s = schoolGov(Jx); return s && Jx.laws.some((l) => l.k === "mayoral_control") ? "mayor" : s && s.ctl; }
+function schoolUnless() {
+    const s = schoolGov();
+    if (!s) return null;
+    if (schoolCtl() === "mayor") return "You already run the schools";
+    if (s.ctl === "state") return `The state runs ${s.n}`;
+    if (s.ctl === "county") return `${s.n} is county-wide, not the city's`;
+    if (s.ctl === "split") return `${placeName()} is split among ${s.n}`;
+    return null;
+}
+function deptList(Jx = J()) {
+    const base = DEPTS[Jx.kind];
+    if (Jx.kind !== "city") return base;
+    const s = schoolGov(Jx), s0 = s.share || 0, extra = Jx.laws.some((l) => l.k === "mayoral_control") ? 0.03 : 0;
+    if (s0 + extra <= 0) return base;
+    const tot = sum(base, (d) => d.share);
+    const mayor = schoolCtl(Jx) === "mayor";
+    const sch = { k: "schools", n: mayor ? "Public schools" : `School funding (${s.n})`, i: "🏫", share: (s0 + extra) * tot, m: { schools: mayor ? 1.2 : 0.6 }, grp: { teachers: 1, suburbs: 0.3, unions: 0.2 } };
+    return base.map((d) => (s0 ? Object.assign({}, d, { share: d.share * (1 - s0) }) : d)).concat([sch]);
+}
 // Spending: costs rise a bit faster than revenue (wages, health care, pensions).
 function spending(Jx = J()) {
     const f = Jx.fin;
     const grow = Math.pow(1.034, years());
-    const depts = DEPTS[Jx.kind];
+    const depts = deptList(Jx);
     const disc = sum(depts, (d) => d.share * (Jx.depts[d.k] || 1));
     const fixed = f.fixed * (f.pensionPay > 1 ? 1.12 : f.pensionPay < 1 ? 0.88 : 1) * (1 + (0.8 - f.pension) * 0.4 * Math.min(1, years() / 4));
     const lawCost = sum(Jx.laws, (l) => (POLICY[l.k] ? POLICY[l.k].cost : 0)) * f.base * Math.pow(1.03, years());
@@ -178,7 +201,7 @@ function updateRating(Jx = J()) {
 function targets(Jx = J()) {
     const out = {};
     MKEYS.forEach((k) => { out[k] = Jx.m0[k]; });
-    DEPTS[Jx.kind].forEach((d) => Object.entries(d.m).forEach(([k, w]) => { out[k] += ((Jx.depts[d.k] || 1) - 1) * 40 * w; }));
+    deptList(Jx).forEach((d) => Object.entries(d.m).forEach(([k, w]) => { out[k] += ((Jx.depts[d.k] || 1) - 1) * 40 * w; }));
     Jx.laws.forEach((l) => { const p = POLICY[l.k]; if (!p) return; const ramp = clamp((G.t - l.t) / 52, 0, 1.5); Object.entries(p.fx).forEach(([k, v]) => { out[k] += v * ramp; }); });
     Object.entries(Jx.team).forEach(([role, id]) => {
         const p = G.people[id]; const R = TEAM[Jx.kind].find((x) => x.k === role);
@@ -278,7 +301,7 @@ function groupTarget(k) {
     Object.entries(Gr.cares).forEach(([m, w]) => { t += (Jx.m[m] - Jx.m0[m]) * w * 1.2; });
     Jx.laws.forEach((l) => { const p = POLICY[l.k]; if (!p) return; p.tags.forEach((tg) => { t += (Gr.tags[tg] || 0) * 6; }); });
     // Budget choices they notice.
-    DEPTS[Jx.kind].forEach((d) => { if (d.grp[k]) t += ((Jx.depts[d.k] || 1) - 1) * 60 * d.grp[k]; });
+    deptList(Jx).forEach((d) => { if (d.grp[k]) t += ((Jx.depts[d.k] || 1) - 1) * 60 * d.grp[k]; });
     (Jx.fin.lines || []).forEach((l) => { if (l.rate > 1.001) t += (Gr.tags.taxup || 0) * 40 * (l.rate - 1) / 0.1 * l.share; });
     // Your staff: their people at the table.
     Object.values(Jx.team).forEach((id) => { const p = G.people[id]; if (p && p.ties && p.ties.includes(k)) t += 5; });

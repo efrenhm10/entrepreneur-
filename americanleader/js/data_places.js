@@ -635,3 +635,31 @@ const CITY_ECON = {
 };
 // Sectors whose busts hit hardest: a city leaning on them is exposed.
 const VOLATILE = ["Hospitality & gaming", "Tourism", "Tourism & hospitality", "Energy", "Oil & gas", "Autos & manufacturing", "Tech", "Tech & AI", "Casinos & hospitality"];
+
+// Who runs the schools. ctl: mayor (the city runs them), council (the city approves and funds the
+// district budget), board (an elected board, separate from City Hall), county, state.
+// share: the part of the city's general fund that goes to the schools today.
+const SCHOOL_GOV = {
+    atlanta: { ctl: "board", n: "Atlanta Public Schools", share: 0, d: "An elected nine-member board runs Atlanta Public Schools and sets its own property tax. City Hall has no say over its budget." },
+    phoenix: { ctl: "split", n: "about 30 school districts", share: 0, d: "Phoenix is split among some 30 separate school districts, each with its own elected board, plus one of the country's biggest charter sectors. The city runs none of them." },
+    milwaukee: { ctl: "board", n: "Milwaukee Public Schools", share: 0, d: "An elected board runs Milwaukee Public Schools and levies its own tax. The Republican legislature has repeatedly threatened to break it up or take it over." },
+    philadelphia: { ctl: "mayor", n: "the School District of Philadelphia", share: 0.05, d: "You appoint all nine members of the Board of Education, and the city sends the district hundreds of millions a year. When the schools fail, it's on you." },
+    lasvegas: { ctl: "county", n: "Clark County School District", share: 0, d: "Clark County School District, the fifth largest in the country, is run by a county-wide elected board. The City of Las Vegas has no formal role." },
+    detroit: { ctl: "board", n: "Detroit Public Schools Community District", share: 0, d: "After years of state emergency managers, an elected board has run Detroit's schools since 2017. The city doesn't fund them." },
+    sanfrancisco: { ctl: "board", n: "San Francisco Unified", share: 0.02, d: "SFUSD has its own elected board, but the city charter requires a Public Education Enrichment Fund, about $100 million a year from the city budget." },
+    seattle: { ctl: "board", n: "Seattle Public Schools", share: 0, d: "An elected board runs Seattle Public Schools. The city's role is its voter-approved Families, Education, Preschool and Promise Levy." },
+    portland_or: { ctl: "board", n: "Portland Public Schools", share: 0, d: "An elected board runs Portland Public Schools. Multnomah County, not the city, runs Preschool for All." },
+    austin: { ctl: "board", n: "Austin ISD", share: 0, d: "An elected board runs Austin ISD, and Texas \"recapture\" sends much of its property tax to poorer districts. The city has no role." },
+    houston: { ctl: "state", n: "Houston ISD", share: 0, d: "The Texas Education Agency took over Houston ISD in 2023 and replaced the elected board with a state-appointed one. Neither voters nor the mayor have a say." },
+    chicago: { ctl: "shared", n: "Chicago Public Schools", share: 0.02, d: "CPS is moving from a mayor-appointed board to a fully elected one by 2027. You still appoint part of the board, and the city and CPS fight constantly over pension payments and TIF money." },
+    neworleans: { ctl: "board", n: "NOLA Public Schools", share: 0, d: "New Orleans became the country's first all-charter district after Katrina. The elected Orleans Parish School Board oversees the charters." },
+    honolulu: { ctl: "state", n: "the Hawaii Department of Education", share: 0, d: "Hawaii is the only state with a single statewide school district. The mayor of Honolulu has no role in the schools at all." },
+    minneapolis: { ctl: "board", n: "Minneapolis Public Schools", share: 0, d: "An elected board runs Minneapolis Public Schools, separate from City Hall." },
+    buffalo: { ctl: "council", n: "Buffalo Public Schools", share: 0.1, d: "Buffalo Public Schools has an elected board, but it's a \"dependent\" district: the city must send it about $70 million a year, and the council approves its budget." },
+    nyc: { ctl: "mayor", n: "New York City Public Schools", share: 0.2, d: "Mayoral control: you appoint the chancellor and most of the Panel for Educational Policy. Schools are the biggest line in the city budget, and Albany renews your control only every few years." },
+    providence: { ctl: "mayor", n: "Providence Public Schools", share: 0.2, d: "The state took over Providence's schools in 2019 and is handing them back to the city. The city funds about a quarter of their budget and is about to own the results." },
+    portland_me: { ctl: "council", n: "Portland Public Schools", share: 0.35, d: "The elected school board drafts the budget, but the City Council must approve it and voters ratify it at referendum. Schools take about half the property tax." },
+    burlington: { ctl: "board", n: "the Burlington School District", share: 0, d: "Burlington's elected school board runs the schools, and voters approve the school budget at Town Meeting. Vermont's statewide education fund pays most of the bill." },
+    albuquerque: { ctl: "board", n: "Albuquerque Public Schools", share: 0, d: "An elected board runs Albuquerque Public Schools, one of the largest districts in the West, separate from City Hall." },
+    anchorage: { ctl: "council", n: "the Anchorage School District", share: 0, d: "The elected school board runs the schools, but the Assembly sets the district's total budget and tax. Most of the money comes from Juneau's per-student formula." }
+};

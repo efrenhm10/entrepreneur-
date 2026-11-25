@@ -79,6 +79,7 @@ function month() {
     ensureEcon();
     econMonth();
     monthGroups();
+    monthCandidates();
     // Demands come due.
     G.demands.filter((d) => d.due <= G.t).forEach((d) => refuseDemand(d.id, true));
     monthDemands();

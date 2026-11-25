@@ -225,6 +225,7 @@ function blocked(pol) {
     if (pol.lvl !== G.level) return "Not at this level of government";
     if (J().laws.some((l) => l.k === pol.k)) return "Already law";
     if (G.bills.some((b) => b.k === pol.k && !["law", "failed", "vetoed", "withdrawn"].includes(b.stage))) return "Already moving";
+    if (pol.unless) { const u = pol.unless(); if (u) return u; }
     if (G.level === "city" && pol.preempt && pol.preempt.includes(CITY().st)) return `${STATE().name} law forbids it`;
     if (G.level === "city" && needsState(pol)) return `Needs permission from the state of ${STATE().name}`;
     if (G.level === "city" && (G.preempted || []).includes(pol.k)) return `Preempted by the state`;
@@ -232,7 +233,7 @@ function blocked(pol) {
 }
 
 // Some city powers exist only where the state has granted them.
-function needsState(pol) { return G.level === "city" && pol.stateOK && !pol.stateOK.includes(CITY().st) && !(G.stateAuth || []).includes(pol.k) && !(pol.preempt || []).includes(CITY().st); }
+function needsState(pol) { return G.level === "city" && !(pol.unless && pol.unless()) && pol.stateOK && !pol.stateOK.includes(CITY().st) && !(G.stateAuth || []).includes(pol.k) && !(pol.preempt || []).includes(CITY().st); }
 // Ask the governor and legislature for the power. The odds depend on party, relations and how the state treats its cities.
 function askStateOdds(pol) {
     const g = G.gov, St = STATE();
@@ -290,7 +291,7 @@ function makeDemand(p) {
     else if (k === "job") { d.text = `wants a political ally hired as a deputy commissioner`; d.heat = 4; }
     else if (k === "police") { d.text = `wants more police patrols in ${area} after a spate of shootings`; d.cost = base * 0.0008; }
     else if (k === "contract") { d.text = `wants a city contract steered to a firm in ${area}`; d.heat = 8; d.cost = base * 0.001; }
-    else if (k === "budget") { const dept = pick(DEPTS[G.level]); d.text = `wants ${dept.n.toLowerCase()} spared from cuts and boosted next budget`; d.dept = dept.k; }
+    else if (k === "budget") { const dept = pick(deptList()); d.text = `wants ${dept.n.toLowerCase()} spared from cuts and boosted next budget`; d.dept = dept.k; }
     if (!d.text) return null;
     return d;
 }
@@ -352,17 +353,62 @@ function whip(billId) { const b = G.bills.find((x) => x.id === billId); if (!b |
 function discharge(billId) { const b = G.bills.find((x) => x.id === billId); if (!b || G.capital < 6) return "Not enough political capital."; G.capital -= 6; const ms = bodyMembers().filter((p) => p.ch === b.ci); const sigs = ms.filter((p) => voteScore(p, b) > 0.1).length; if (sigs > ms.length / 2) { b.discharged = true; return `${sigs} members sign the discharge petition. The bill heads to the floor.`; } return `Only ${sigs} members signed. The chair keeps it bottled up.`; }
 
 // ── Your staff ──────────────────────────────────────────────────────
+// Where candidates come from, by job. The pool changes: people take other jobs and new names apply.
+const ROLE_BLURBS = {
+    cos: ["your campaign manager", "a veteran of the last administration", "a former congressional chief of staff", "a political fixer who knows every ward boss", "a lobbyist who knows the capitol"],
+    deputy: ["a former agency head", "a former city manager from the suburbs", "a retired executive from the utility", "a council member who just lost re-election"],
+    chief: ["a deputy chief who came up through the ranks here", "a reform-minded chief from another city", "a former FBI special agent in charge", "the commander of the gang unit", "a retired chief brought back for a few years", "a sheriff's department commander"],
+    budget: ["a former state budget office analyst", "a municipal bond banker", "the council's longtime finance staffer", "the CFO of the transit agency", "a public-finance professor"],
+    comms: ["a TV reporter turned spokesperson", "your campaign's press secretary", "a corporate PR executive", "a former City Hall reporter", "a digital strategist from a national campaign"],
+    housing: ["a nonprofit housing developer", "a former tenants' rights lawyer", "a homebuilder's executive", "the head of the housing authority", "a homeless-services nonprofit leader"],
+    econ: ["a former chamber of commerce president", "a site-selection consultant", "a venture capitalist", "the head of the regional development agency", "a union apprenticeship director"],
+    edu: ["a former superintendent", "a charter network founder", "a teachers union vice president", "an education professor"],
+    health: ["a hospital system executive", "a former county health director", "a Medicaid policy expert"],
+    safety: ["a former state police colonel", "a prosecutor", "a corrections reformer"],
+    transport: ["a former transit agency chief", "a highway engineer", "a city transportation commissioner"],
+    treasury: ["a Wall Street CEO", "a former Fed governor", "an economist from a think tank"],
+    ag: ["a former U.S. attorney", "a state attorney general", "a federal appeals judge"],
+    dhs: ["a retired general", "a former border sector chief", "a governor who ran disaster response"],
+    hhs: ["a governor who expanded Medicaid", "a hospital CEO", "a former CDC official"],
+    defense: ["a retired four-star general", "a defense industry executive", "a former Navy secretary"],
+    press: ["a cable news anchor", "your campaign spokesperson", "a veteran White House reporter"]
+};
+const GENERIC_BLURBS = ["a veteran of the last administration", "a rising star from the campaign", "a former agency head", "a nonprofit leader", "an outside expert from another city", "a former council staffer", "a corporate executive", "a union-backed organizer"];
+function newCandidate(rk) {
+    const grpKeys = Object.keys(J().groups);
+    const bloc = pick(["prog", "lib", "mod", G.level === "city" ? "mach" : "con"]);
+    const p = makePerson({ bloc, party: bloc === "con" ? "R" : "D", staff: true, skill: chance(0.12) ? 1 : rint(2, 5), ties: shuffle(grpKeys).slice(0, 2), scandal: rnd(0, 0.3) });
+    const taken = new Set((G.cands[rk] || []).map(P).filter(Boolean).map((x) => x.blurb));
+    const opts = (ROLE_BLURBS[rk] || []).concat(GENERIC_BLURBS).filter((b) => !taken.has(b));
+    p.blurb = pick(opts.length ? opts : GENERIC_BLURBS);
+    return p.id;
+}
+function dropCandidate(id) { if (id && !Object.values(J().team).includes(id) && G.people[id] && G.people[id].staff) delete G.people[id]; }
+// A fresh slate for one job.
+function refreshCandidates(rk) {
+    (G.cands[rk] || []).forEach(dropCandidate);
+    G.cands[rk] = [];
+    for (let i = 0; i < 3; i++) G.cands[rk].push(newCandidate(rk));
+}
 function makeTeamCandidates() {
     G.cands = {};
-    const grpKeys = Object.keys(J().groups);
+    TEAM[G.level].forEach((R) => refreshCandidates(R.k));
+}
+// Each month some candidates take other jobs and new people apply.
+function monthCandidates() {
+    if (!G.cands) return;
+    const news = [];
     TEAM[G.level].forEach((R) => {
-        G.cands[R.k] = [0, 1, 2].map(() => {
-            const bloc = pick(["prog", "lib", "mod", G.level === "city" ? "mach" : "con"]);
-            const p = makePerson({ bloc, party: bloc === "con" ? "R" : "D", staff: true, skill: rint(2, 5), ties: shuffle(grpKeys).slice(0, 2), scandal: rnd(0, 0.3) });
-            p.blurb = pick(["a veteran of the last administration", "a rising star from the campaign", "a former agency head", "a nonprofit leader", "an outside expert from another city", "a former council staffer", "a corporate executive", "a union-backed organizer"]);
-            return p.id;
-        });
+        const list = (G.cands[R.k] || []).filter((id) => id !== J().team[R.k] && P(id));
+        if (list.length < 3) { while (list.length < 3) list.push(newCandidate(R.k)); G.cands[R.k] = list; return; }
+        if (!chance(0.3)) return;
+        const i = rint(0, list.length - 1), gone = P(list[i]);
+        dropCandidate(list[i]);
+        list[i] = newCandidate(R.k);
+        G.cands[R.k] = list;
+        if (!J().team[R.k] && gone) news.push(`${gone.name} took another job; ${P(list[i]).name} applied for ${R.n}.`);
     });
+    news.slice(0, 1).forEach((n) => log(n, "info"));
 }
 function appoint(role, id) {
     const old = J().team[role];
