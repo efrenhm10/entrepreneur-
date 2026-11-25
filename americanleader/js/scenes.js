@@ -291,8 +291,8 @@ SCENES.pres_grants = () => S("💸", kick("Washington"), "Federal grants frozen"
     [ch("Sue.", { cost: 0.0002, pres: -6, press: 2 }, "", { run: () => (chance(0.6) ? "Courts order the money released." : (J().fin.base *= 0.99, "The freeze holds.")) }), ch("Comply with their conditions.", { pres: 8, g: { progressives: -6, immigrants: -4, latino: -3 } }, "The money flows again."), ch("Absorb the loss.", {}, "", { run: () => { J().fin.base *= 0.99; return "You cut elsewhere."; } })]);
 SCENES.pres_doj = () => S("⚖️", kick("The Justice Department"), pick(["DOJ drops your police consent decree", "DOJ opens an investigation of your police"]), "The Justice Department's decision upends years of plans for your police department.",
     [ch("Keep the reforms going on your own.", { cost: 0.001, m: { trust: 2 }, g: { progressives: 4, police: -3 } }, ""), ch("Use the moment to reset with the police union.", { g: { police: 6, progressives: -5 }, m: { trust: -2 } }, "")]);
-SCENES.pres_infra = () => S("🏗️", kick("Washington"), "A federal grant opportunity", `The Transportation Department has ${money(J().fin.base * 0.03)} available for ${pick(["transit", "bridges", "water pipes", "flood protection", "broadband"])}. Competition is stiff, and the politics matter.`,
-    [ch("Apply, and court the administration.", { cap: -3, pres: 4 }, "", { run: () => { if (sameParty(G.pres) || G.pres.rel > 10 || chance(0.3)) { spendOneTime(-J().fin.base * 0.02); shock("streets", 3); return "You win the grant."; } return "Another city gets it."; }, req: capOK(3) }), ch("Skip it.", {}, "")]);
+SCENES.pres_infra = () => { const type = pick(Object.keys(GRANT_PROGRAMS)), Gp = GRANT_PROGRAMS[type]; return S("🏗️", kick("Washington"), "A federal grant opportunity", `The ${Gp.agency} opens a new round of ${pick(Gp.progs)} funding for ${Gp.n.toLowerCase()}. Competition is stiff, and the politics matter. Your odds: about **${Math.round(grantOdds(type) * 100)}%**, more if you court the administration.`,
+    [ch("Apply, and court the administration.", { pres: 4 }, "", { run: () => { G.grantT && delete G.grantT[type]; G.capital += 3; return applyGrant(type, 0.12); } }), ch("Apply on the merits.", {}, "", { run: () => { G.grantT && delete G.grantT[type]; G.capital += 3; return applyGrant(type); } }), ch("Skip it.", {}, "")]); };
 SCENES.pres_medicaid = () => S("🏥", kick("Washington"), "Federal Medicaid cuts", `Congress and the President cut federal Medicaid money; ${STATE().name} loses ${money(J().fin.base * 0.03)} a year.`,
     [ch("Backfill it with state money.", {}, "", { run: () => { J().fin.spend0 *= 1.02; return "Coverage holds; the budget is tighter."; } }), ch("Cut enrollment.", { m: { services: -5 }, g: { progressives: -6, unions: -3 } }, "")]);
 
@@ -359,4 +359,38 @@ SCENES.ribbon = (a) => {
     choices.push(ch(`Use the moment to pitch ${placeName()} to other ${Sec.n.toLowerCase()} companies (better odds of landing the next one).`, { press: 2 }, "", { run: () => { ec.buzz = ec.buzz || {}; ec.buzz[a.sector] = Math.min(0.12, (ec.buzz[a.sector] || 0) + 0.05); ec.sec[a.sector] = (ec.sec[a.sector] || 0) + 0.2; return "Site-selection consultants take note. Companies in the sector look harder at " + placeName() + "."; } }));
     choices.push(ch("Skip it and send a deputy.", { press: -1, cap: 1 }, "The papers run a photo of the ribbon with an empty spot where you should be."));
     return S("✂️", kick("Ribbon cutting"), f ? `${f.name} opens` : `Opening day: ${a.name}`, text, choices);
+};
+
+// ── Federal grants: choosing the project, and opening day ──────────
+SCENES.grant_won = (a) => {
+    const g = a.g, Gp = GRANT_PROGRAMS[g.type], match = g.amt * MATCH;
+    if (a.lvl && a.lvl !== G.level) return S("💸", "", "The grant moves on", "", [ch("OK", {}, "")]);
+    const b = grantBoost(g.amt);
+    const who = (o) => { const m = areaMember(o.h); return m ? ` ${m.name}'s district.` : ""; };
+    const go = (opt, share, label) => () => {
+        spendOneTime(match);
+        const pj = startProject(g, opt, share, label);
+        groupMove("trades", 3);
+        log(`Construction starts: ${pj.name} (${money(g.amt * share)}).`, "good");
+        return `Shovels in the ground. ${pj.name} should open around ${dateStr(pj.done)}.`;
+    };
+    const choices = g.opts.map((o) => { const m = areaMember(o.h); return ch(`${o.name}.`, { press: 2, ...(m ? { who: { [m.id]: 14 } } : {}) }, "", { run: go(o, 1) }); });
+    choices.forEach((c, i) => { c.t += ` ${Gp.i} ${metricName(Gp.m, G.level)} +${fmt(b, 1)} when done · about ${Math.round(g.opts[i].wk / 4.3)} months.${who(g.opts[i])}`; });
+    choices.push(ch(`Split it between the first two projects: +${fmt(b * 0.45, 1)} each, so ${metricName(Gp.m, G.level)} +${fmt(b * 0.9, 1)} in all.`, { press: 1, body: 1, ...(areaMember(g.opts[0].h) && areaMember(g.opts[1].h) ? { who: { [areaMember(g.opts[0].h).id]: 6, [areaMember(g.opts[1].h).id]: 6 } } : {}) }, "", { run: () => { go(g.opts[0], 0.5)(); return go(g.opts[1], 0.5)(); } }));
+    choices.push(ch(`Spread it across the whole ${G.level === "city" ? "city" : "state"}: a little for every ${G.level === "city" ? "district" : "region"}. ${metricName(Gp.m, G.level)} +${fmt(b * 0.8, 1)} in about a year.`, { body: 4, press: -1 }, "", { run: go(null, 1, `${Gp.n} upgrades across ${placeName()}`) }));
+    if (J().fin.reserve < match) choices.push(ch(`Turn it down: you can't cover the ${money(match)} local match.`, { press: -3, a: -0.5 }, "The money goes to another city. The papers notice."));
+    return S("💸", kick(Gp.agency), `You won a ${money(g.amt)} federal ${g.prog}`, `The ${Gp.agency} is sending ${placeName()} **${money(g.amt)}** for ${Gp.n.toLowerCase()}. The city has to put up a **${money(match)} local match**. Every council member wants it in their district. Where does it go?`, choices);
+};
+SCENES.project_open = (a) => {
+    const p = (J().projects || []).find((x) => x.id === a.id);
+    if (!p || a.level !== G.level) return S("✂️", "", "The ribbon is cut", "Your successor cuts the ribbon on a project you started.", [ch("OK", {}, "")]);
+    const Gp = GRANT_PROGRAMS[p.type], m = p.h && areaMember(p.h);
+    const fedName = G.pres ? `the ${Gp.agency === "EPA" ? "EPA Administrator" : Gp.agency === "FEMA" ? "FEMA Administrator" : "Transportation Secretary"}` : "federal officials";
+    return S("✂️", kick("Ribbon cutting"), `Opening day: ${p.name}`, `It's done: **${p.name}**, ${money(p.amt)} from the federal ${p.prog} and your local match. ${metricName(p.m, G.level)} gets a lasting lift of **+${fmt(p.boost, 1)}**. Neighbors, construction crews and cameras gather${p.h ? ` in ${p.h}` : ""}. ${m ? `${m.name}, who represents the area, is at the front of the crowd.` : ""}`, [
+        ch(`Take the credit. “I said we'd fix it, and we fixed it.”`, { a: 1.2, press: 4, cap: 3, ...(m ? { who: { [m.id]: -6 } } : {}) }, "It leads the evening news."),
+        ch("Thank the workers who built it.", { a: 0.8, press: 2, g: { trades: 4, unions: 3 } }, "The building trades cheer loudest."),
+        ...(m ? [ch(`Call ${m.name} up to cut the ribbon with you.`, { a: 0.5, press: 1, who: { [m.id]: 15 }, body: 2 }, `${m.name} beams. That's a vote you can count on.`)] : []),
+        ch(`Invite ${fedName} and thank Washington.`, { a: 0.3, press: 2, pres: 8 }, sameParty(G.pres) ? "The administration loves the photo op, and remembers who said thanks." : "A rare bipartisan photo. The White House notices."),
+        ch("Skip it and send a deputy.", { press: -1, cap: 1 }, "The papers run a photo of the ribbon with an empty spot where you should be.")
+    ]);
 };

@@ -80,6 +80,7 @@ function month() {
     econMonth();
     monthGroups();
     monthCandidates();
+    monthProjects();
     // Demands come due.
     G.demands.filter((d) => d.due <= G.t).forEach((d) => refuseDemand(d.id, true));
     monthDemands();
@@ -524,4 +525,75 @@ function gameOver(why) {
     G.over = { why, t: G.t, score: legacyScore() };
     log(why, "bad");
     save();
+}
+
+
+// ── Federal grants and capital projects ─────────────────────────────
+// Apply for real federal programs; when you win, you choose the project and the neighborhood.
+// The federal government pays most of it, the city puts up a local match, and when it opens the
+// condition it fixes goes up for good.
+const GRANT_PROGRAMS = {
+    transit: { n: "Transit", i: "🚌", agency: "Federal Transit Administration", progs: ["Capital Investment Grant", "Low-No Emission Bus grant", "Bus and Bus Facilities grant"], m: "transit", m2: "environment",
+        projects: [["Bus rapid transit line through {h}", 78], ["Electric buses and a new garage for the {h} routes", 52], ["Rebuilt transit station and plaza in {h}", 91]] },
+    streets: { n: "Roads & bridges", i: "🌉", agency: "Transportation Department", progs: ["RAISE grant", "Bridge Investment Program grant", "Safe Streets and Roads for All grant"], m: "streets", m2: "safety",
+        projects: [["Rebuild the crumbling bridge into {h}", 91], ["Complete-streets redesign of {h}'s main corridor", 52], ["Repave streets and fix sidewalks across {h}", 39]] },
+    water: { n: "Water & sewer", i: "🚰", agency: "EPA", progs: ["WIFIA water infrastructure award", "lead pipe replacement grant", "Clean Water State Revolving Fund award"], m: "water", m2: "services",
+        projects: [["Replace every lead service line in {h}", 78], ["Separate the combined sewers under {h}", 104], ["Rebuild the aging water mains in {h}", 65]] },
+    flood: { n: "Flood protection", i: "🌊", agency: "FEMA", progs: ["Building Resilient Infrastructure and Communities grant", "Flood Mitigation Assistance grant"], m: "environment", m2: "water",
+        projects: [["Flood walls and new pump stations for {h}", 91], ["Stormwater park and green streets in {h}", 52], ["Raise and harden the roads in low-lying {h}", 78]] }
+};
+const MATCH = 0.2; // the local share
+function grantAreas() { return G.level === "city" ? CITY().hoods : G.level === "state" ? STATE().cities.concat([CITY().name]) : []; }
+function areaMember(h) { return G.level === "city" ? bodyMembers().find((m) => m.area === h) : null; }
+function grantOdds(type) {
+    const P0 = G.pres, prio = (J().prio || []).some((k) => { const I = ISSUES.find((x) => x.k === k); return I && I.m === GRANT_PROGRAMS[type].m; });
+    const staff = J().team.econ || J().team.transport ? 0.05 : 0;
+    return clamp(0.3 + (P0 ? P0.rel / 200 + (sameParty(P0) ? 0.12 : -0.05) : 0) + (prio ? 0.08 : 0) + staff + (100 - J().m[GRANT_PROGRAMS[type].m]) / 400, 0.08, 0.8);
+}
+function grantWait(type) { const t = (G.grantT || {})[type]; return t != null && G.t - t < 26 ? 26 - (G.t - t) : 0; }
+function applyGrant(type, bonus = 0) {
+    if (G.level === "nation") return "";
+    if (grantWait(type)) return `You can apply again in ${grantWait(type)} weeks.`;
+    if (G.capital < 3) return "A competitive application takes 3 political capital.";
+    G.capital -= 3;
+    G.grantT = Object.assign(G.grantT || {}, { [type]: G.t });
+    const Gp = GRANT_PROGRAMS[type];
+    G.grantApps = (G.grantApps || []).concat([{ type, prog: pick(Gp.progs), due: G.t + rint(6, 14), odds: clamp(grantOdds(type) + bonus, 0.05, 0.9), lvl: G.level }]);
+    return `Your team files the application to the ${Gp.agency}. Awards are announced in a few months.`;
+}
+// A won grant: three possible projects in three different places.
+function makeGrant(type, prog) {
+    const Gp = GRANT_PROGRAMS[type], areas = shuffle(grantAreas().slice());
+    const amt = J().fin.base * rnd(0.012, 0.03);
+    return { id: uid("g"), type, prog, amt, opts: shuffle(Gp.projects.slice()).slice(0, 3).map(([n, wk], i) => ({ name: n.replace("{h}", areas[i % areas.length]), h: areas[i % areas.length], wk })) };
+}
+function grantBoost(amt) { return clamp(amt / J().fin.base * 200, 3, 6); }
+function startProject(g, opt, share, label) {
+    const Jx = J(), Gp = GRANT_PROGRAMS[g.type];
+    const amt = g.amt * share;
+    Jx.projects = Jx.projects || [];
+    const p = { id: uid("pj"), name: label || opt.name, h: opt ? opt.h : null, type: g.type, m: Gp.m, m2: Gp.m2, boost: grantBoost(g.amt) * share * (label ? 0.8 : 1) * (share < 1 ? 0.9 : 1), amt, start: G.t, done: G.t + (opt ? opt.wk : 52), prog: g.prog };
+    Jx.projects.push(p);
+    return p;
+}
+// What projects do to conditions: some disruption while building, a lasting lift when done.
+function projectFx(Jx = J()) {
+    const out = {};
+    (Jx.projects || []).forEach((p) => {
+        if (G.t >= p.done) { out[p.m] = (out[p.m] || 0) + p.boost; out[p.m2] = (out[p.m2] || 0) + p.boost * 0.35; }
+        else if (G.t - p.start > 8) out[p.m] = (out[p.m] || 0) - 0.4;
+    });
+    return out;
+}
+function monthProjects() {
+    if (G.level === "nation") return;
+    // Award letters.
+    (G.grantApps || []).filter((a) => G.t >= a.due).forEach((a) => {
+        G.grantApps = G.grantApps.filter((x) => x !== a);
+        if (a.lvl !== G.level) return;
+        if (chance(a.odds)) queueScene("grant_won", { g: makeGrant(a.type, a.prog) });
+        else { const rival = pick(Object.values(CITIES).map((c) => c.name).filter((n) => n !== placeName())); log(`The ${a.prog} goes to ${G.level === "city" ? rival : "other states"} instead of ${placeName()}.`, "warn"); toast("Grant denied", `${GRANT_PROGRAMS[a.type].agency}: not this round.`, []); }
+    });
+    // Openings.
+    (J().projects || []).filter((p) => G.t >= p.done && !p.opened).forEach((p) => { p.opened = true; log(`${p.name} is finished.`, "good"); queueScene("project_open", { id: p.id, level: G.level }); });
 }

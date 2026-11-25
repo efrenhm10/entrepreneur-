@@ -202,6 +202,7 @@ function targets(Jx = J()) {
     const out = {};
     MKEYS.forEach((k) => { out[k] = Jx.m0[k]; });
     deptList(Jx).forEach((d) => Object.entries(d.m).forEach(([k, w]) => { out[k] += ((Jx.depts[d.k] || 1) - 1) * 40 * w; }));
+    Object.entries(projectFx(Jx)).forEach(([k, v]) => { if (out[k] != null) out[k] += v; });
     Jx.laws.forEach((l) => { const p = POLICY[l.k]; if (!p) return; const ramp = clamp((G.t - l.t) / 52, 0, 1.5); Object.entries(p.fx).forEach(([k, v]) => { out[k] += v * ramp; }); });
     Object.entries(Jx.team).forEach(([role, id]) => {
         const p = G.people[id]; const R = TEAM[Jx.kind].find((x) => x.k === role);

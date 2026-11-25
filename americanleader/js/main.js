@@ -51,6 +51,7 @@ A("introduce", (el) => {
     log(`You send the ${b.title} to the ${bodyShort()}.`, "info");
     toast("Bill introduced", `It goes to committee. Whip count: ${tally(b, 0).yes}–${tally(b, 0).no}.`, []);
 });
+A("applyGrant", (el) => toast("Federal grant", applyGrant(el.dataset.k), []));
 A("askState", (el) => { const pol = POLICY[el.dataset.k]; const r = askState(el.dataset.k); if (r) toast(`${STATE().name} capitol`, r, []); });
 A("execOrder", (el) => {
     const pol = POLICY[el.dataset.k];
