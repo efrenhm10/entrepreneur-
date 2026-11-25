@@ -125,9 +125,38 @@ function spending(Jx = J()) {
     const disc = sum(depts, (d) => d.share * (Jx.depts[d.k] || 1));
     const fixed = f.fixed * (f.pensionPay > 1 ? 1.12 : f.pensionPay < 1 ? 0.88 : 1) * (1 + (0.8 - f.pension) * 0.4 * Math.min(1, years() / 4));
     const lawCost = sum(Jx.laws, (l) => (POLICY[l.k] ? POLICY[l.k].cost : 0)) * f.base * Math.pow(1.03, years());
-    return f.spend0 * grow * (fixed + (1 - f.fixed) * disc) + lawCost + subsidyCost(Jx);
+    return f.spend0 * grow * (fixed + (1 - f.fixed) * disc) + lawCost + subsidyCost(Jx) + newDebtService(Jx);
 }
 function balance(Jx = J()) { return revenue(Jx) - spending(Jx); }
+
+// ── Debt ────────────────────────────────────────────────────────────
+// The debt you inherited is already paid for in the budget; anything you add costs interest and
+// principal every year (about 8.5% for 20-year bonds). Washington only pays interest.
+const debt0 = (f) => (f.debt0 != null ? f.debt0 : (f.debt0 = f.debt));
+const debtRate = (Jx = J()) => (Jx.kind === "nation" ? 0.034 : 0.085);
+function newDebtService(Jx = J()) { const f = Jx.fin; return Math.max(0, f.debt - debt0(f)) * debtRate(Jx) * (Jx.kind === "nation" ? 0 : 1); }
+function debtService(Jx = J()) { return Jx.fin.debt * debtRate(Jx); }
+// Pensions promised but not yet paid for: debt in all but name.
+function pensionGap(Jx = J()) { const f = Jx.fin; const liability = f.base * (Jx.kind === "city" ? 3.2 : Jx.kind === "state" ? 2 : 0); return liability * Math.max(0, 1 - f.pension); }
+function issueBonds(amt) {
+    const f = J().fin;
+    if (G.capital < 3) return "Issuing bonds takes 3 political capital.";
+    G.capital -= 3;
+    debt0(f); f.debt += amt; f.reserve += amt;
+    log(`${J().name} sells ${money(amt)} in bonds. Debt payments rise by ${money(amt * debtRate())} a year.`, "warn");
+    return `Sold ${money(amt)} in bonds. Payments go up ${money(amt * debtRate())} a year for 20 years.`;
+}
+function payDownDebt(amt) {
+    const f = J().fin;
+    debt0(f);
+    amt = Math.min(amt, f.reserve, f.debt);
+    if (amt <= 0) return "There's nothing in the rainy-day fund to pay it with.";
+    f.reserve -= amt; f.debt -= amt;
+    // Retiring old debt frees up the payments built into the budget.
+    if (f.debt < f.debt0) { f.spend0 -= (f.debt0 - f.debt) * debtRate() * 0.8; f.debt0 = f.debt; }
+    log(`${J().name} pays off ${money(amt)} of debt early.`, "good");
+    return `Paid off ${money(amt)}. That saves about ${money(amt * debtRate())} a year.`;
+}
 // Can this level borrow to cover a deficit? Only Washington.
 const mustBalance = () => G.level !== "nation";
 function updateRating(Jx = J()) {

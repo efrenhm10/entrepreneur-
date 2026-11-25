@@ -97,6 +97,8 @@ function year() {
     // Pensions: full payments slowly heal the fund; skipped ones dig the hole deeper.
     f.pension = clamp(f.pension + (f.pensionPay >= 1 ? 0.012 * f.pensionPay : -0.03) + (G.natEcon || 0) * 0.02, 0.1, 1.05);
     updateRating(Jx);
+    // New debt pays down over twenty years.
+    if (G.level !== "nation") { const extra = f.debt - debt0(f); if (extra > 0) f.debt -= extra * 0.05; }
     f.hist.push({ y: yearOf(G.t) - 1, rev: f.yr.rev, spend: f.yr.spend, reserve: f.reserve, debt: f.debt });
     f.yr = { rev: 0, spend: 0, start: G.t };
     f.oneTime = 0;

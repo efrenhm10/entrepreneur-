@@ -136,7 +136,8 @@ function renderHud() {
             ${stat("Approval", Math.round(G.approval) + "%", lvl(G.approval, 55, 38), "How voters rate you")}
             ${stat("Capital", `${Math.floor(G.capital)} <span class="tiny muted">+${fmt(capitalWeekly(), 1)}/wk</span>`, "capital", `Political capital: the clout you spend on bills, deals, lobbying and pitches. +${fmt(capitalWeekly(), 1)} a week (more when your approval is high and your team is full), plus bonuses when you win: a bill signed, a budget passed, a company landed. Max ${capitalCap()}.`)}
             ${stat("Budget", (bal >= 0 ? "+" : "") + money(bal), bal >= 0 ? "good" : "bad", "Projected surplus or deficit this year", "budget")}
-            ${G.level === "nation" ? stat("Debt", money(f.debt), "", "National debt", "budget") : stat("Rainy day", money(f.reserve), f.reserve < 0 ? "bad" : "", "Reserve fund", "budget")}
+            ${G.level === "nation" ? "" : stat("Rainy day", money(f.reserve), f.reserve < 0 ? "bad" : "", "Reserve fund", "budget")}
+            ${stat("Debt", money(f.debt), f.debt > f.base * 2 ? "bad" : "", `${G.level === "nation" ? "National" : "Bonded"} debt. Payments: ${money(debtService())} a year. Click for the Budget tab.`, "budget")}
             ${stat("Rating", f.rating, f.ratingScore >= 10 ? "good" : f.ratingScore <= 5 ? "bad" : "", "Credit rating")}
             ${stat(metricName("safety", G.level), Math.round(Jx.m.safety), lvl(Jx.m.safety, 55, 35), "", "place")}
             ${G.heat > 10 ? stat("Scandal", Math.round(G.heat), "bad", "Scandal heat: how much trouble the press smells") : ""}
@@ -442,7 +443,21 @@ function viewBudget() {
         <div class="row"><div>${G.level === "nation" ? "National debt" : "Rainy-day fund"}<br><b>${money(G.level === "nation" ? f.debt : f.reserve)}</b></div><div>Pensions<br><b>${Math.round(f.pension * 100)}% funded</b></div><div>Rating<br><b>${f.rating}</b></div></div>
         ${f.lines.map((l) => `<div class="row small"><span style="flex:1">${esc(l.n)}</span><b>${money(l.share * f.base * Math.pow(1.03, years()) * l.rate)}</b></div>`).join("")}
         <p class="tiny muted">Costs (wages, health care, pensions) grow faster than revenue: every year the gap widens unless the economy grows or you act.</p>${next}`)}</div>
-        <div>${panel("Department funding", depts)}${panel("Past years", (f.hist || []).slice(-6).map((h) => `<p class="small">${h.y}: revenue ${money(h.rev)} · spending ${money(h.spend)} · ${G.level === "nation" ? "debt " + money(h.debt) : "reserve " + money(h.reserve)}</p>`).join("") || "<p class='muted small'>No history yet.</p>")}</div></div>`;
+        <div>${panel("Department funding", depts)}${debtPanel(Jx)}${panel("Past years", (f.hist || []).slice(-6).map((h) => `<p class="small">${h.y}: revenue ${money(h.rev)} · spending ${money(h.spend)} · ${G.level === "nation" ? "debt " + money(h.debt) : "reserve " + money(h.reserve)}</p>`).join("") || "<p class='muted small'>No history yet.</p>")}</div></div>`;
+}
+
+function debtPanel(Jx) {
+    const f = Jx.fin;
+    const per = f.debt / Math.max(1, Jx.pop);
+    const pg = pensionGap(Jx);
+    const step = f.base * 0.02;
+    const hist = (f.hist || []).slice(-6).map((h) => `${h.y}: ${money(h.debt)}`).join(" · ");
+    return panel("Debt", `<div class="row"><div>${G.level === "nation" ? "National debt" : "Bonded debt"}<br><b>${money(f.debt)}</b></div><div>Per resident<br><b>$${Math.round(per).toLocaleString()}</b></div><div>Payments a year<br><b>${money(debtService(Jx))}</b></div></div>
+        ${G.level !== "nation" ? `<div class="row"><div>Unfunded pensions<br><b class="${pg > f.base ? "bad" : ""}">${money(pg)}</b></div><div>Pensions funded<br><b>${Math.round(f.pension * 100)}%</b></div><div>Rating<br><b>${f.rating}</b></div></div>` : `<div class="row"><div>Debt vs. revenue<br><b>${fmt(f.debt / Math.max(1, revenue(Jx)), 1)} years</b></div><div>Rating<br><b>${f.rating}</b></div></div>`}
+        ${meter("Debt load", clamp(f.debt / (f.base * (G.level === "nation" ? 10 : 3)), 0, 1), false, `${fmt(f.debt / Math.max(1, f.base), 1)}× a year's revenue`)}
+        ${hist ? `<p class="tiny muted">Past years: ${hist}</p>` : ""}
+        ${G.level !== "nation" ? `<div class="row"><button data-act="debtIssue" ${G.capital < 3 ? "disabled" : ""}>💵 Issue ${money(step)} in bonds (3)</button><button data-act="debtPay" ${f.reserve <= 0 ? "disabled" : ""}>✂️ Pay down ${money(Math.min(step, Math.max(0, f.reserve)))} from the rainy-day fund</button></div>
+        <p class="tiny muted">Bonds fill the rainy-day fund now and cost about ${Math.round(debtRate(Jx) * 100 * 10) / 10}% of the amount every year for 20 years. Paying debt down early frees up those payments. Rating agencies watch your debt, your reserves and your pensions.</p>` : `<p class="tiny muted">Washington borrows to cover every deficit. Interest is about ${fmt(debtRate(Jx) * 100, 1)}% a year.</p>`}`);
 }
 
 // ── The place ───────────────────────────────────────────────────────
