@@ -320,3 +320,14 @@ SCENES.ceo_visit = (a) => {
     return S("🏢", kick(`${p.name} headquarters · pitch ${p.round + 1} of 3`), `Meeting the CEO of ${p.name}`, intro,
         Object.entries(WANTS).map(([k, W]) => ch(W.pitch, {}, "", { run: () => { pitch(p.id, k); queueScene("ceo_visit", { id: p.id }); return ""; } })));
 };
+
+// ── A tax on the ballot ─────────────────────────────────────────────
+SCENES.ballot = (a) => {
+    const b = G.bills.find((x) => x.id === a.id);
+    const pol = b && POLICY[b.k];
+    if (!pol) return S("🗳️", "", "No measure", "", [ch("OK", {}, "")]);
+    const base = 0.5 + (G.approval - 50) / 120 - J().lean / 400 - (pol.ideo + 0.2) * 0.15;
+    const decide = (boost) => { const yes = clamp(base + boost + rnd(-0.06, 0.06), 0.1, 0.9); b.voted = true; if (yes > 0.5) { const out = []; enact(b, out); return `Voters approve it, ${Math.round(yes * 100)}% to ${100 - Math.round(yes * 100)}%.`; } b.stage = "failed"; b.why = "Voters said no"; G.approval -= 1; return `Voters reject it, ${100 - Math.round(yes * 100)}% to ${Math.round(yes * 100)}%.`; };
+    return S("🗳️", kick("Ballot measure"), `Voters decide: ${pol.n}`, `The ${bodyShort()} passed it, but it needs voter approval. ${pol.payer ? `Opponents, led by ${pol.payer}, are spending heavily against it.` : ""} Early polling has it at about **${Math.round(clamp(base, 0.1, 0.9) * 100)}%**.`,
+        [ch("Campaign hard for it.", { cap: -5, funds: -Math.min(G.funds, 2e5) }, "", { run: () => decide(0.07), req: capOK(5) }), ch("Let the voters decide.", {}, "", { run: () => decide(0) })]);
+};

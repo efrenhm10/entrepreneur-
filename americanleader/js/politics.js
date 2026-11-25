@@ -202,7 +202,11 @@ function enact(b, out, overridden) {
     b.stage = "law"; b.done = G.t;
     if (!pol) return;
     if (J().laws.some((l) => l.k === pol.k)) return;
+    // Some taxes have to go to the voters first.
+    if (pol.ballot && G.level === "city" && !b.voted) { b.stage = "ballot"; queueScene("ballot", { id: b.id }); if (out) out.push(["info", `The ${b.title} goes to the voters.`]); return; }
     J().laws.push({ k: pol.k, t: G.t, water: !!b.water });
+    const yr = Math.floor(years());
+    if (pol.once && (J().onceYr || {})[pol.k] !== yr) { J().onceYr = Object.assign(J().onceYr || {}, { [pol.k]: yr }); spendOneTime(-pol.once * J().fin.base); log(`${pol.n}: ${money(pol.once * J().fin.base)} lands in the rainy-day fund.`, "good"); }
     const ch = groupsReact(pol.tags, b.water ? 0.6 : 1);
     // The public's view: how far the law sits from where this place leans.
     const pub = J().lean / 100;
@@ -222,8 +226,33 @@ function blocked(pol) {
     if (J().laws.some((l) => l.k === pol.k)) return "Already law";
     if (G.bills.some((b) => b.k === pol.k && !["law", "failed", "vetoed", "withdrawn"].includes(b.stage))) return "Already moving";
     if (G.level === "city" && pol.preempt && pol.preempt.includes(CITY().st)) return `${STATE().name} law forbids it`;
+    if (G.level === "city" && needsState(pol)) return `Needs permission from the state of ${STATE().name}`;
     if (G.level === "city" && (G.preempted || []).includes(pol.k)) return `Preempted by the state`;
     return null;
+}
+
+// Some city powers exist only where the state has granted them.
+function needsState(pol) { return G.level === "city" && pol.stateOK && !pol.stateOK.includes(CITY().st) && !(G.stateAuth || []).includes(pol.k) && !(pol.preempt || []).includes(CITY().st); }
+// Ask the governor and legislature for the power. The odds depend on party, relations and how the state treats its cities.
+function askStateOdds(pol) {
+    const g = G.gov, St = STATE();
+    return clamp(0.3 + (g ? g.rel / 150 + (g.party === G.me.party ? 0.15 : -0.1) : 0) + (St.ctrl === G.me.party ? 0.1 : St.ctrl === "split" ? 0 : -0.1) - St.hostile * 0.35 - (pol.ideo < -0.5 && St.lean > 0 ? 0.15 : 0), 0.03, 0.85);
+}
+function askState(k) {
+    const pol = POLICY[k];
+    if (!pol || !needsState(pol)) return "";
+    if (G.capital < 5) return "Lobbying the capitol takes 5 political capital.";
+    G.capital -= 5;
+    const odds = askStateOdds(pol);
+    if (chance(odds)) {
+        G.stateAuth = (G.stateAuth || []).concat([k]);
+        if (G.gov) G.gov.rel -= 3;
+        log(`The ${STATE().legis} gives ${CITY().name} the power to adopt the ${pol.n.toLowerCase()}.`, "good");
+        return `The state says yes. You can now introduce the ${pol.n.toLowerCase()}.`;
+    }
+    if (G.gov) G.gov.rel -= 2;
+    log(`${STATE().name} refuses to let ${CITY().name} adopt the ${pol.n.toLowerCase()}.`, "warn");
+    return `The bill dies in the ${STATE().legis}. Rural lawmakers call it a "${CITY().name} money grab."`;
 }
 
 // ── NPC bills: members introduce their own ordinances ───────────────

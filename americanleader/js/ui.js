@@ -303,12 +303,15 @@ function issueStat(I) {
     if (!st) return "";
     return { homeless: `${st.homelessN.toLocaleString()} people homeless`, housing: `median rent $${st.rent.toLocaleString()}`, food: `grocery prices ${st.grocery} (U.S. = 100)`, wages: `typical hourly wage $${fmt(st.wage, 2)}`, diversify: `${Math.round(J().dep)}% of jobs in one boom-and-bust industry`, water: `about ${st.breaks.toLocaleString()} water main breaks a year`, safety: `${st.homicides} homicides a year`, jobs: `${fmt(st.unemp, 1)}% unemployment` }[I.k] || "";
 }
+function askBtn(p) {
+    return `<button class="mini" data-act="askState" data-k="${p.k}" ${G.capital < 5 ? "disabled" : ""} title="Lobby the governor and legislature for the power">🏛️ Ask the state (5) · ${Math.round(askStateOdds(p) * 100)}%</button>`;
+}
 function leverRow(p, Jx) {
     const law = Jx.laws.some((l) => l.k === p.k);
     const why = blocked(p);
     const moving = G.bills.some((b) => b.k === p.k && !["law", "failed", "vetoed", "withdrawn"].includes(b.stage));
     const fx = Object.entries(p.fx).map(([k, x]) => `${METRICS[k].i}${sgn(x)}`).join(" ");
-    const btns = !law && !why ? `<button class="mini" data-act="introduce" data-k="${p.k}" ${G.capital < 3 ? "disabled" : ""}>Introduce</button>${p.exec ? `<button class="mini" data-act="execOrder" data-k="${p.k}" ${G.capital < 5 ? "disabled" : ""}>Order</button>` : ""}` : "";
+    const btns = !law && !why ? `<button class="mini" data-act="introduce" data-k="${p.k}" ${G.capital < 3 ? "disabled" : ""}>Introduce</button>${p.exec ? `<button class="mini" data-act="execOrder" data-k="${p.k}" ${G.capital < 5 ? "disabled" : ""}>Order</button>` : ""}` : !law && !moving && needsState(p) ? askBtn(p) : "";
     return `<div class="row small" style="margin:2px 0"><span style="flex:1">${law ? "✅" : moving ? "⏳" : "•"} ${esc(p.n)} <span class="tiny muted">${fx}${p.cost > 0 ? ` · ${money(p.cost * Jx.fin.base)}/yr` : ""}</span>${why && !law && !moving ? ` <span class="tiny bad">${esc(why)}</span>` : ""}</span>${btns}</div>`;
 }
 function viewIssues() {
@@ -406,8 +409,8 @@ function viewLaws() {
         const why = blocked(p);
         const preview = !why ? tally({ id: "preview" + p.k, k: p.k, sponsor: "me", pork: {}, lean: {}, whip: 0 }, 0) : null;
         const fx = Object.entries(p.fx).map(([k, v]) => `${METRICS[k].i}${sgn(v)}`).join(" ");
-        return `<div class="opt ${law ? "cur" : ""}"><div><b>${esc(p.n)}</b> <span class="tiny muted">${esc(p.cat)}</span>${law ? ' <span class="pill">Law</span>' : ""}${law && law.water ? ' <span class="pill">watered down</span>' : ""}<p class="small">${esc(p.d)}</p><p class="tiny">${fx} · ${p.cost ? (p.cost > 0 ? `costs ${money(p.cost * J().fin.base)}/yr` : `raises ${money(-p.cost * J().fin.base)}/yr`) : "no cost"} · ${policyReact(p)}${preview ? ` · whip count <b class="${preview.pass ? "good" : "bad"}">${preview.yes}–${preview.no}</b> (need ${preview.need})` : ""}</p>${why && !law ? `<p class="tiny bad">${esc(why)}</p>` : ""}</div>
-            <div class="col-btns">${law ? `<button class="mini" data-act="repealLaw" data-k="${p.k}" ${G.capital < 4 ? "disabled" : ""}>Repeal (4)</button>` : !why ? `<button class="mini" data-act="introduce" data-k="${p.k}" ${G.capital < 3 ? "disabled" : ""}>Introduce (3)</button>${p.exec ? `<button class="mini" data-act="execOrder" data-k="${p.k}" ${G.capital < 5 ? "disabled" : ""}>Executive order (5)</button>` : ""}` : ""}</div></div>`;
+        return `<div class="opt ${law ? "cur" : ""}"><div><b>${esc(p.n)}</b> <span class="tiny muted">${esc(p.cat)}</span>${law ? ' <span class="pill">Law</span>' : ""}${law && law.water ? ' <span class="pill">watered down</span>' : ""}<p class="small">${esc(p.d)}</p><p class="tiny">${fx} · ${p.once ? `one-time ${money(p.once * J().fin.base)}${p.cost > 0 ? `, then loses ${money(p.cost * J().fin.base)}/yr` : ""}` : p.cost ? (p.cost > 0 ? `costs ${money(p.cost * J().fin.base)}/yr` : `raises ${money(-p.cost * J().fin.base)}/yr`) : "no cost"}${p.payer ? ` · paid by ${esc(p.payer)}` : ""}${p.ballot ? " · needs voter approval" : ""} · ${policyReact(p)}${preview ? ` · whip count <b class="${preview.pass ? "good" : "bad"}">${preview.yes}–${preview.no}</b> (need ${preview.need})` : ""}</p>${why && !law ? `<p class="tiny bad">${esc(why)}</p>` : ""}</div>
+            <div class="col-btns">${law ? `<button class="mini" data-act="repealLaw" data-k="${p.k}" ${G.capital < 4 ? "disabled" : ""}>Repeal (4)</button>` : !why ? `<button class="mini" data-act="introduce" data-k="${p.k}" ${G.capital < 3 ? "disabled" : ""}>Introduce (3)</button>${p.exec ? `<button class="mini" data-act="execOrder" data-k="${p.k}" ${G.capital < 5 ? "disabled" : ""}>Executive order (5)</button>` : ""}` : needsState(p) ? askBtn(p) : ""}</div></div>`;
     }).join("");
     return `<div class="cols2 wide-left"><div>${panel(G.level === "city" ? "Ordinances and executive orders" : "Bills", `<div class="filters">${cats.map((c) => `<button class="mini ${ui.lawCat === c ? "on" : ""}" data-act="lawcat" data-k="${c}">${c === "all" ? "All" : esc(c)}</button>`).join("")}</div>${list}`)}</div>
         <div>${panel("How laws get made", `<p class="small">Introduce a bill and it goes to committee, where the chair can bury it, then to a floor vote${J().body.chambers.length > 1 ? " in each chamber" : ""}. The whip count shows where it stands today; work members on the ${bodyShort()} tab. Some policies can be done by executive order, skipping the ${bodyShort()}, at a price in capital and goodwill.</p>${G.level === "city" ? `<p class="small">${esc(STATE().name)} law forbids some city policies (shown in red). Preemption is how states keep cities in line.</p>` : ""}`)}
@@ -443,7 +446,24 @@ function viewBudget() {
         <div class="row"><div>${G.level === "nation" ? "National debt" : "Rainy-day fund"}<br><b>${money(G.level === "nation" ? f.debt : f.reserve)}</b></div><div>Pensions<br><b>${Math.round(f.pension * 100)}% funded</b></div><div>Rating<br><b>${f.rating}</b></div></div>
         ${f.lines.map((l) => `<div class="row small"><span style="flex:1">${esc(l.n)}</span><b>${money(l.share * f.base * Math.pow(1.03, years()) * l.rate)}</b></div>`).join("")}
         <p class="tiny muted">Costs (wages, health care, pensions) grow faster than revenue: every year the gap widens unless the economy grows or you act.</p>${next}`)}</div>
-        <div>${panel("Department funding", depts)}${debtPanel(Jx)}${panel("Past years", (f.hist || []).slice(-6).map((h) => `<p class="small">${h.y}: revenue ${money(h.rev)} · spending ${money(h.spend)} · ${G.level === "nation" ? "debt " + money(h.debt) : "reserve " + money(h.reserve)}</p>`).join("") || "<p class='muted small'>No history yet.</p>")}</div></div>`;
+        <div>${panel("Department funding", depts)}${revenuePanel(Jx)}${debtPanel(Jx)}${panel("Past years", (f.hist || []).slice(-6).map((h) => `<p class="small">${h.y}: revenue ${money(h.rev)} · spending ${money(h.spend)} · ${G.level === "nation" ? "debt " + money(h.debt) : "reserve " + money(h.reserve)}</p>`).join("") || "<p class='muted small'>No history yet.</p>")}</div></div>`;
+}
+
+// New ways to raise money: what this city may do under state law.
+function revenuePanel(Jx) {
+    if (G.level !== "city") return "";
+    const rank = (p) => Jx.laws.some((l) => l.k === p.k) ? 3 : !blocked(p) ? 0 : needsState(p) ? 1 : (p.preempt || []).includes(CITY().st) ? 4 : 2;
+    const rows = POLICIES.filter((p) => p.lvl === "city" && p.cat === "Revenue").sort((a, b) => rank(a) - rank(b)).map((p) => {
+        const law = Jx.laws.some((l) => l.k === p.k);
+        const bill = G.bills.find((b) => b.k === p.k && !["law", "failed", "vetoed", "withdrawn"].includes(b.stage));
+        const why = blocked(p);
+        const amt = p.once ? `one-time ${money(p.once * Jx.fin.base)}${p.cost > 0 ? `, then −${money(p.cost * Jx.fin.base)}/yr` : ""}` : `+${money(-p.cost * Jx.fin.base)}/yr`;
+        const status = law ? '<span class="pill">In effect</span>' : bill ? `<span class="pill">${bill.stage === "ballot" ? "On the ballot" : bill.stage === "desk" ? "On your desk" : "In the " + esc(bodyShort())}</span>` : why ? `<span class="tiny ${needsState(p) ? "" : "bad"}">${needsState(p) ? "⚠️ " : "⛔ "}${esc(why)}</span>` : "";
+        const btn = law || bill ? "" : needsState(p) ? askBtn(p) : !why ? `<button class="mini" data-act="introduce" data-k="${p.k}" ${G.capital < 3 ? "disabled" : ""}>Introduce (3)</button>` : "";
+        return `<div class="opt ${law ? "cur" : ""}" style="${(p.preempt || []).includes(CITY().st) ? "opacity:.6" : ""}"><div><b>${esc(p.n)}</b> <b class="good small">${amt}</b>${p.ballot ? ' <span class="pill">Ballot</span>' : ""}<p class="tiny muted">Paid by ${esc(p.payer || "taxpayers")} · ${policyReact(p)}</p>${status}</div><div class="col-btns">${btn}</div></div>`;
+    }).join("");
+    const auth = (G.stateAuth || []).length;
+    return panel("New revenue", `<p class="tiny muted">Ways cities raise money without touching the property tax. Cities can only use the powers ${esc(STATE().name)} gives them: some are allowed, some need permission from the governor and ${esc(STATE().legis)}, and some are banned outright.${auth ? ` The state has granted you ${auth} new power${auth > 1 ? "s" : ""}.` : ""}</p>${rows}`);
 }
 
 function debtPanel(Jx) {

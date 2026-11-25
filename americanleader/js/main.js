@@ -51,6 +51,7 @@ A("introduce", (el) => {
     log(`You send the ${b.title} to the ${bodyShort()}.`, "info");
     toast("Bill introduced", `It goes to committee. Whip count: ${tally(b, 0).yes}–${tally(b, 0).no}.`, []);
 });
+A("askState", (el) => { const pol = POLICY[el.dataset.k]; const r = askState(el.dataset.k); if (r) toast(`${STATE().name} capitol`, r, []); });
 A("execOrder", (el) => {
     const pol = POLICY[el.dataset.k];
     if (G.capital < 5 || blocked(pol)) return;
