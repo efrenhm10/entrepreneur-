@@ -191,7 +191,8 @@ function advisories() {
     const out = [];
     const Jx = J(), b = Jx.budget;
     if (b && b.status === "drafting") out.push(`💰 Your FY${b.fy} budget is due ${dateStr(b.due)} (Budget tab).`);
-    if (b && b.status === "rejected") out.push(`💰 The ${bodyShort()} rejected your budget. Revise it before ${dateStr(b.start)}.`);
+    if (b && b.status === "rejected") out.push(b.lapsed ? `💰 Your late FY${b.fy} budget was rejected. Revise and resend it; you're frozen at last year's levels until it passes.` : `💰 The ${bodyShort()} rejected your budget. Revise it before ${dateStr(b.start)}.`);
+    if (b && b.lapsed && b.status === "submitted") out.push(`💰 Your late FY${b.fy} budget is with the ${bodyShort()}; the vote is ${dateStr(b.vote)}.`);
     if (Jx.fin.cr) out.push("⏸️ You're running on last year's budget. Pass a new one.");
     const desk = G.bills.filter((x) => x.stage === "desk" && x.sponsor !== "me").length;
     if (desk) out.push(`🖋️ ${desk} bill${desk > 1 ? "s" : ""} on your desk.`);
@@ -423,7 +424,7 @@ function viewBudget() {
         const tal = withDraft(() => budgetTally());
         const depts = DEPTS[G.level].map((d) => { const v = b.depts[d.k]; return `<div class="budget-row"><span>${d.i} ${d.n}</span><span><button class="mini" data-act="bdept" data-k="${d.k}" data-d="-0.05">−5%</button><button class="mini" data-act="bdept" data-k="${d.k}" data-d="-0.01">−1</button><button class="mini" data-act="bdept" data-k="${d.k}" data-d="0.01">+1</button><button class="mini" data-act="bdept" data-k="${d.k}" data-d="0.05">+5%</button></span><b class="${v > 1.001 ? "good" : v < 0.999 ? "bad" : ""}">${Math.round(v * 100)}%</b><span class="tiny muted">${Object.keys(d.m).map((k) => METRICS[k].i).join("")}</span></div>`; }).join("");
         const rates = f.lines.map((l, i) => { const ok = l.ctl === "council"; return `<div class="budget-row"><span class="small">${esc(l.n)}</span><span>${ok ? `<button class="mini" data-act="brate" data-i="${i}" data-d="-0.02">−2%</button><button class="mini" data-act="brate" data-i="${i}" data-d="0.02">+2%</button>` : `<span class="tiny muted">${{ voter: "voters must approve", state: "needs state law", none: "fixed" }[l.ctl]}</span>`}</span><b class="${b.rates[i] > 1.001 ? "bad" : b.rates[i] < 0.999 ? "good" : ""}">${Math.round(b.rates[i] * 100)}%</b><span class="tiny muted">${money(l.share * f.base * Math.pow(1.03, years()))}</span></div>`; }).join("");
-        draft = panel(`Your FY${b.fy} budget ${b.status === "rejected" ? '<span class="pill">Rejected — revise</span>' : ""}`, `
+        draft = panel(`Your FY${b.fy} budget ${b.status === "rejected" ? '<span class="pill">Rejected — revise</span>' : ""}${b.lapsed ? ' <span class="pill">Late</span>' : ""}`, `${b.lapsed ? `<p class="small bad">The fiscal year started without a budget. Departments are frozen at last year's levels until this passes; send it to the ${esc(bodyShort())} as soon as it balances.</p>` : ""}
             <div class="row"><div>Revenue <b>${money(n.R)}</b></div><div>Spending <b>${money(n.S)}</b></div><div>From reserve <b>${money(n.draw)}</b></div><div>Balance <b class="${n.gap >= 0 ? "good" : "bad"}">${n.gap >= 0 ? "+" : ""}${money(n.gap)}</b></div></div>
             ${mustBalance() && n.gap < 0 ? `<p class="bad small">By law the budget must balance. Cut, raise revenue or draw on the reserve.</p>` : ""}
             <h4>Departments (funding vs. last year)</h4>${depts}

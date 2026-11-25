@@ -116,18 +116,25 @@ function budgetSeason() {
     const fy = yearOf(start) + (J().fy.month === 0 && G.level !== "nation" ? 0 : 1);
     const open = start - 13, due = start - 7;
     const B = Jx.budget || (Jx.budget = { status: "closed" });
+    const live = (x) => x && ["drafting", "submitted", "rejected"].includes(x.status);
+    // A new budget season. A late budget that never passed is abandoned: that year stays on last year's numbers.
     if (G.t === open && B.fy !== fy) {
+        if (live(B)) log(`The FY${B.fy} budget never passed; that year ran on last year's numbers.`, "bad");
         Jx.budget = { fy, status: "drafting", due, start, depts: Object.assign({}, Jx.depts), rates: Jx.fin.lines.map((l) => l.rate), pensionPay: Jx.fin.pensionPay, draw: 0, tries: 0 };
         queueScene("budget_open");
     }
     const b = Jx.budget;
-    if (!b || b.fy !== fy) return;
+    if (!b || !b.depts) return;
+    // Saves from before late budgets kept moving.
+    if (b.status === "lapsed") { b.status = "drafting"; b.lapsed = true; b.due = G.t + 3; }
+    // The budget in play keeps moving, even after its fiscal year has started.
     if (b.status === "drafting" && G.t >= b.due) { log(`Your budget office sends the ${bodyShort()} a current-services budget for FY${b.fy}.`, "warn"); submitBudget(true); }
     if (b.status === "submitted" && G.t >= b.vote) voteBudget();
-    if (["drafting", "submitted", "rejected"].includes(b.status) && G.t >= b.start) {
-        b.status = "lapsed"; Jx.fin.cr = true;
+    if (live(b) && !b.lapsed && G.t >= b.start) {
+        b.lapsed = true; Jx.fin.cr = true;
+        if (b.status === "drafting") b.due = Math.max(b.due, G.t + 3);
         if (G.level === "nation") { G.shutdown = true; queueScene("shutdown"); }
-        else { log(`FY${b.fy} begins without a budget. Departments run at last year's levels; rating agencies take note.`, "bad"); G.approval -= 3; queueScene("budget_lapsed"); }
+        else { log(`FY${b.fy} begins without a budget. Departments run at last year's levels until one passes; rating agencies take note.`, "bad"); G.approval -= 3; queueScene("budget_lapsed"); }
     }
 }
 // Apply the draft temporarily to see what it costs.
