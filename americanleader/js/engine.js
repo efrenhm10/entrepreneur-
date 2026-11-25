@@ -70,6 +70,7 @@ function makeCity(c) {
     DEPTS.city.forEach((d) => { Jx.depts[d.k] = 1; });
     Object.keys(c.groups).forEach((k) => { if (GROUPS[k]) Jx.groups[k] = { w: c.groups[k], l: 50 + rint(-6, 6) }; });
     applyBackground(Jx);
+    initEcon(Jx, CITY_ECON[G.cityK].inds);
     Jx.fy = { month: FYM[G ? G.cityK : ""] != null ? FYM[G.cityK] : 6 };
     Jx.electionYear = 2026 + c.term - 1;
     void St;
@@ -114,7 +115,7 @@ const years = () => G.t / 52;
 function revenue(Jx = J()) {
     const f = Jx.fin;
     const econ = 1 + (Jx.m.economy - Jx.m0.economy) / 160;
-    return f.base * Math.pow(1.03, years()) * econ * sum(f.lines, (l) => l.share * Math.pow(l.rate, 0.9));
+    return f.base * Math.pow(1.03, years()) * econ * sum(f.lines, (l) => l.share * Math.pow(l.rate, 0.9)) + firmRevenue(Jx);
 }
 // Spending: costs rise a bit faster than revenue (wages, health care, pensions).
 function spending(Jx = J()) {
@@ -124,7 +125,7 @@ function spending(Jx = J()) {
     const disc = sum(depts, (d) => d.share * (Jx.depts[d.k] || 1));
     const fixed = f.fixed * (f.pensionPay > 1 ? 1.12 : f.pensionPay < 1 ? 0.88 : 1) * (1 + (0.8 - f.pension) * 0.4 * Math.min(1, years() / 4));
     const lawCost = sum(Jx.laws, (l) => (POLICY[l.k] ? POLICY[l.k].cost : 0)) * f.base * Math.pow(1.03, years());
-    return f.spend0 * grow * (fixed + (1 - f.fixed) * disc) + lawCost;
+    return f.spend0 * grow * (fixed + (1 - f.fixed) * disc) + lawCost + subsidyCost(Jx);
 }
 function balance(Jx = J()) { return revenue(Jx) - spending(Jx); }
 // Can this level borrow to cover a deficit? Only Washington.
@@ -164,6 +165,9 @@ function targets(Jx = J()) {
     if (Jx.fin.cr) MKEYS.forEach((k) => { out[k] -= 2; });
     // Washington's economy lifts or sinks everyone.
     out.economy += (G.natEcon || 0) * 6 * (1 + (Jx.dep || 12) / 25);
+    // New employers, investments and subsidies.
+    const eb = econBoost(Jx);
+    out.economy += eb.economy; out.wages += eb.wages;
     MKEYS.forEach((k) => { out[k] = clamp(out[k] + (Jx.shock[k] || 0), 2, 98); });
     return out;
 }

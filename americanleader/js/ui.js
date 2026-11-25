@@ -1,7 +1,7 @@
 // American Leader: screens and views.
 
 let view = "office";
-const ui = { cityK: null, creator: null, lawCat: "all", memberFilter: "swing", billSel: null, lobbyBill: null };
+const ui = { econSel: null, cityK: null, creator: null, lawCat: "all", memberFilter: "swing", billSel: null, lobbyBill: null };
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const md = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").split(/\n\n/).map((p) => `<p>${p.replace(/\n/g, "<br>")}</p>`).join("");
@@ -115,7 +115,7 @@ function renderTeamSetup() {
 // ── The game screen ─────────────────────────────────────────────────
 function viewsFor() {
     const body = G.level === "city" ? (CITY().council.short === "Board of Supervisors" ? "Supervisors" : CITY().council.short) : G.level === "state" ? "Legislature" : "Congress";
-    return [["office", "🏛️", G.level === "city" ? "City Hall" : G.level === "state" ? "Governor's Office" : "Oval Office"], ["issues", "🎯", "Major Issues"], ["council", "⚖️", body], ["laws", "📜", G.level === "city" ? "Ordinances" : "Laws"], ["budget", "💰", "Budget"], ["place", G.level === "city" ? "🏙️" : "🗺️", G.level === "city" ? "The City" : G.level === "state" ? "The State" : "The Nation"], ["power", "🤝", "Power"], ["team", "👔", G.level === "city" ? "Team" : "Cabinet"], ["campaign", "🗳️", "Campaign"], ["record", "📖", "Record"]];
+    return [["office", "🏛️", G.level === "city" ? "City Hall" : G.level === "state" ? "Governor's Office" : "Oval Office"], ["issues", "🎯", "Major Issues"], ["economy", "🏭", "Economy"], ["council", "⚖️", body], ["laws", "📜", G.level === "city" ? "Ordinances" : "Laws"], ["budget", "💰", "Budget"], ["place", G.level === "city" ? "🏙️" : "🗺️", G.level === "city" ? "The City" : G.level === "state" ? "The State" : "The Nation"], ["power", "🤝", "Power"], ["team", "👔", G.level === "city" ? "Team" : "Cabinet"], ["campaign", "🗳️", "Campaign"], ["record", "📖", "Record"]];
 }
 function render() {
     if (!G) return;
@@ -154,7 +154,7 @@ function renderDock() {
     $("#dock").innerHTML = viewsFor().map(([k, i, n]) => `<button class="${view === k ? "on" : ""}" data-act="view" data-v="${k}">${i} ${n}${badge[k] ? ` <span class="pill">${badge[k]}</span>` : ""}</button>`).join("");
 }
 function renderView() {
-    const fn = { issues: viewIssues, office: viewOffice, council: viewCouncil, laws: viewLaws, budget: viewBudget, place: viewPlace, power: viewPower, team: viewTeam, campaign: viewCampaign, record: viewRecord }[view] || viewOffice;
+    const fn = { economy: viewEconomy, issues: viewIssues, office: viewOffice, council: viewCouncil, laws: viewLaws, budget: viewBudget, place: viewPlace, power: viewPower, team: viewTeam, campaign: viewCampaign, record: viewRecord }[view] || viewOffice;
     $("#view").innerHTML = fn();
 }
 function renderScene() {
@@ -235,6 +235,62 @@ function viewOffice() {
             ${panel("Your staff says", advisories().map((t) => `<p class="advice">${esc(t)}</p>`).join("") || "<p class='muted'>All quiet.</p>")}
             ${panel("Latest", G.log.slice(0, 14).map((l) => `<p class="cable ${l.type}"><small>${dateStr(l.t)}</small> ${esc(l.text)}</p>`).join(""))}
         </div>
+    </div>`;
+}
+
+// ── Economy: sectors, investments, subsidies, the investment desk ───
+const fmtJobs = (n) => n >= 1e6 ? `${fmt(n / 1e6, 1)} million` : n >= 1e4 ? `${Math.round(n / 1e3)}K` : Math.round(n).toLocaleString();
+function sectorRow(k, v, Jx) {
+    const S = SECTORS[k], ec = Jx.ec;
+    const gaps = sectorGaps(k, Jx);
+    const on = ui.econSel === k;
+    return `<button class="bill-row ${on ? "on" : ""}" data-act="econSel" data-k="${k}"><span>${S.i} <b>${esc(S.n)}</b>${S.vol ? " ⚠️" : ""}${ec.sub[k] ? ' <span class="pill">subsidized</span>' : ""}<br><span class="tiny muted">${fmtJobs(v / 100 * employed(Jx))} jobs · ~$${S.wage}/hr · fit ${"★".repeat(ec.fit[k])}${"☆".repeat(5 - ec.fit[k])}${gaps.length ? ` · <span class="bad">${gaps.length} need${gaps.length > 1 ? "s" : ""} unmet</span>` : ""}</span></span><span class="small">${fmt(v, 1)}%</span></button>`;
+}
+function sectorDetail(k, Jx) {
+    const S = SECTORS[k], ec = Jx.ec;
+    const needs = Object.entries(S.needs).map(([m, v]) => { const ok = Jx.m[m] >= v; return `<span class="badge" style="${ok ? "" : "background:#4e1f1f"}">${ok ? "✓" : "✗"} ${metricName(m, G.level)} ${Math.round(Jx.m[m])}/${v}</span>`; }).join(" ") || '<span class="tiny muted">No special needs.</span>';
+    const sub = [0, 1, 2].map((l) => `<button class="mini ${(ec.sub[k] || 0) === l ? "on" : ""}" data-act="econSub" data-k="${k}" data-l="${l}">${["None", "Tax credits", "Aggressive"][l]}${l ? ` (${money(l * 0.0025 * Jx.fin.base)}/yr)` : ""}</button>`).join("");
+    const assets = S.assets.map(([a, n, c, wk]) => {
+        const built = ec.assets[`${k}:${a}`], b = ec.building.find((x) => x.asset === a && x.sector === k);
+        const cost = c * Jx.fin.base * (Jx.kind === "nation" ? 0.05 : 1);
+        return `<div class="row small" style="margin:3px 0"><span style="flex:1">${built ? "✅" : b ? "🚧" : "•"} ${esc(n)} <span class="tiny muted">${money(cost)} · ${Math.round(wk / 4.3)} months${b ? ` · opens ${dateStr(b.done)}` : ""}</span></span>${!built && !b ? `<button class="mini" data-act="econBuild" data-k="${k}" data-a="${a}" ${G.capital < 3 ? "disabled" : ""}>Build (3)</button>` : ""}</div>`;
+    }).join("") || '<p class="tiny muted">Nothing for the government to build here; it grows with the economy.</p>';
+    const starts = ec.startups.filter((s) => s.sector === k);
+    return panel(`${S.i} ${esc(S.n)}`, `<p class="small">${fmtJobs((ec.sec[k] || 0) / 100 * employed(Jx))} jobs (${fmt(ec.sec[k] || 0, 1)}%) · typical pay $${S.wage}/hr · natural fit ${"★".repeat(ec.fit[k])}${"☆".repeat(5 - ec.fit[k])} · national trend ${S.trend > 0 ? "+" : ""}${S.trend}%/yr${S.vol ? " · ⚠️ boom and bust" : ""}</p>
+        <h4>What it needs to flourish</h4><div>${needs}</div>
+        <h4>Subsidies</h4><div class="row">${sub}</div><p class="tiny muted">Ongoing tax credits and incentives grow the sector and draw companies. Business likes them; progressives call them corporate welfare.</p>
+        <h4>Build for it</h4>${assets}
+        <h4>Homegrown firms</h4><div class="row"><button class="mini" data-act="econStartup" data-k="${k}" ${G.capital < 2 ? "disabled" : ""}>Back a local founder (2 capital, ${money(Jx.fin.base * 0.0006 * (Jx.kind === "nation" ? 0.05 : 1))})</button></div>${starts.map((s) => `<p class="tiny">${s.done ? "•" : "🌱"} ${esc(s.name)} ${s.done ? "" : "(growing)"}</p>`).join("")}`, "bill");
+}
+function prospectCard(p, Jx) {
+    const S = SECTORS[p.sector], t = offerTerms(p), odds = prospectOdds(p);
+    const parts = prospectParts(p).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 7);
+    const offer = Object.entries(OFFER).map(([k, o]) => `<div class="row small" style="margin:2px 0"><span style="flex:1">${o.n}${o.want && p.known && p.want === o.want ? " ⭐" : ""}</span>${o.opts.map((x, i) => `<button class="mini ${p.offer[k] === i ? "on" : ""}" data-act="econOffer" data-id="${p.id}" data-k="${k}" data-v="${i}">${esc(x)}</button>`).join("")}</div>`).join("");
+    return panel(`${S.i} ${esc(p.name)}`, `<p class="small">${esc(S.n)} · <b>${p.jobs.toLocaleString()} jobs</b> at about $${p.wage}/hr · ${money(p.capex)} investment · also looking at <b>${esc(p.rival)}</b> · decides by ${dateStr(p.until)}</p>
+        <p class="small">${p.known ? `They care most about <b>${WANTS[p.want].n}</b>.` : "You don't know yet what matters most to them. A visit to headquarters would tell you."} <span class="tiny muted">${STYLES[p.style]}</span></p>
+        ${offer}
+        <p class="small">Your package costs <b>${money(t.cost)}</b> up front${t.yrs ? ` and forgoes ${t.yrs} years of property taxes` : ""}. Once it's open: about <b>${money(t.tax)}</b> a year in taxes${t.cost ? ` · pays back in about ${fmt(t.payback, 0)} years` : ""}.</p>
+        ${meter("Odds they choose you", odds, true, Math.round(odds * 100) + "%")}
+        <p class="tiny muted">${parts.map(([l, v]) => `${esc(l)} ${v > 0 ? "+" : "−"}${Math.round(Math.abs(v) * 100)}`).join(" · ")}</p>
+        <div class="row">${p.round === 0 ? `<button data-act="econVisit" data-id="${p.id}" ${G.capital < 3 ? "disabled" : ""}>✈️ Visit HQ and pitch the CEO (3)</button>` : `<span class="tiny muted">Pitched: ${p.round}/3</span>`}<button class="primary" data-act="econMakeOffer" data-id="${p.id}" ${G.capital < 4 ? "disabled" : ""}>Make the offer (4)</button></div>`);
+}
+function viewEconomy() {
+    const Jx = J();
+    ensureEcon(Jx);
+    const ec = Jx.ec;
+    const secs = Object.entries(ec.sec).filter(([, v]) => v >= 0.5).sort((a, b) => b[1] - a[1]);
+    const others = Object.keys(SECTORS).filter((k) => !secs.some(([s]) => s === k));
+    if (!ui.econSel || !SECTORS[ui.econSel]) ui.econSel = (secs.find(([k]) => SECTORS[k].assets.length) || secs[0])[0];
+    const st = liveStats();
+    const firms = ec.firms.slice().reverse().map((f) => `<div class="minister"><span>${SECTORS[f.sector].i} <b>${esc(f.name)}</b>${f.local ? ' <span class="pill">homegrown</span>' : ""}<br><span class="tiny muted">${f.jobs.toLocaleString()} jobs · $${f.wage}/hr · ${f.open ? (G.t < f.abateTo ? `tax break until ${yearOf(f.abateTo)}` : "paying full taxes") : "under construction"}</span></span></div>`).join("") || "<p class='muted small'>No new employers yet.</p>";
+    return `<div class="cols3">
+        <div>${panel(`The ${esc(placeName())} economy`, `<div class="row"><div>Jobs<br><b>${fmtJobs(employed(Jx))}</b></div><div>${st ? `Unemployment<br><b>${fmt(st.unemp, 1)}%</b>` : `Economy<br><b>${Math.round(Jx.m.economy)}</b>`}</div><div>${st ? `Typical wage<br><b>$${fmt(st.wage, 2)}</b>` : `Wages<br><b>${Math.round(Jx.m.wages)}</b>`}</div></div>
+            ${meter("Dependence on boom-and-bust sectors", Jx.dep / 40, false, Math.round(Jx.dep) + "% of jobs")}
+            <p class="tiny muted">The economy is ${G.natEcon >= 0.2 ? "growing nationally" : G.natEcon <= -0.2 ? "slumping nationally" : "steady nationally"}. ⚠️ marks boom-and-bust sectors.</p>`)}
+            ${panel("Sectors", secs.map(([k, v]) => sectorRow(k, v, Jx)).join("") + `<h4>Grow something new</h4><div class="filters">${others.map((k) => `<button class="mini ${ui.econSel === k ? "on" : ""}" data-act="econSel" data-k="${k}">${SECTORS[k].i} ${esc(SECTORS[k].n)}</button>`).join("")}</div>`)}
+        </div>
+        <div>${sectorDetail(ui.econSel, Jx)}${panel("Employers you've landed", firms)}</div>
+        <div><div class="row"><h3 style="flex:1;margin:0">Investment desk</h3></div><p class="small muted">Companies scouting sites. Build a package, pitch the CEO, and make your offer before they pick somewhere else. New prospects arrive every few months; investing in a sector draws more of them.</p>${ec.prospects.map((p) => prospectCard(p, Jx)).join("") || panel("", "<p class='muted small'>No one is scouting right now. Check back next quarter.</p>")}</div>
     </div>`;
 }
 

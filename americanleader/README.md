@@ -31,6 +31,16 @@ French Quarter, Albany controls New York City's taxes and rents.
   diversification, roads, water and sewer, crime, police trust, schools, transit, disasters, jobs
   and basic services. Each shows how bad it is, real numbers, its trend and the laws and orders that
   address it. Pick up to three priorities: your staff focuses on them and voters judge you on them.
+- **The economy.** Twenty modern sectors (tech and AI, semiconductors, EVs and batteries, life
+  sciences, clean energy, logistics, aerospace, film, tourism, oil and gas and more), each with its
+  share of jobs, typical pay, natural fit and the conditions it needs (schools, water, roads, housing,
+  safety). Build public investments for a sector (megasites, labs, soundstages, convention centers,
+  cargo hubs), subsidize it, or back local founders who may grow into employers. On the investment
+  desk, real companies (TSMC, Micron, Eli Lilly, Hyundai, Rivian, Netflix, Boeing and others) scout
+  sites against rival cities: build an incentive package (tax abatements, cash grants, site prep, fast
+  permits, local hiring and union deals), fly to headquarters for three pitches that their site
+  selectors check against your real numbers, then make your offer. New employers add jobs, raise
+  wages, cut your dependence on boom-and-bust industries, and pay taxes once their breaks end.
 - **The council, legislature or Congress.** Every member is a person with a district, bloc
   (progressives, mainstream Democrats, moderates, old guard, conservatives), party, loyalty,
   ambition, grudges and a pet issue. Committee chairs can bury bills; whip counts show where every

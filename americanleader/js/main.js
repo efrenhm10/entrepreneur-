@@ -101,6 +101,13 @@ A("prio", (el) => {
     log(`You make ${I.n.toLowerCase()} a priority.`, "info");
     toast("New priority", `${I.n}: your team is on it, and voters will judge you on it.`, applyFx({ press: 1 }));
 });
+A("econSel", (el) => { ui.econSel = el.dataset.k; });
+A("econSub", (el) => toast("Subsidies", setSubsidy(el.dataset.k, +el.dataset.l), []));
+A("econBuild", (el) => toast("Groundbreaking", buildAsset(el.dataset.k, el.dataset.a), []));
+A("econStartup", (el) => toast("A local founder", backStartup(el.dataset.k), []));
+A("econOffer", (el) => { const p = J().ec.prospects.find((x) => x.id === el.dataset.id); if (p) p.offer[el.dataset.k] = +el.dataset.v; });
+A("econVisit", (el) => { if (G.capital < 3) return; G.capital -= 3; queueScene("ceo_visit", { id: el.dataset.id }); });
+A("econMakeOffer", (el) => toast("Your offer", makeOffer(el.dataset.id), []));
 A("presser", () => { G.capital -= 2; toast("Press conference", "", applyFx({ press: 5, a: 0.5 })); });
 A("townhall", () => { G.capital -= 3; const k = pick(Object.keys(J().groups)); toast("Town hall", `${GROUPS[k].n} turn out in force.`, applyFx({ a: 1, g: { [k]: 4 } })); });
 // Team.

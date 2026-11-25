@@ -309,3 +309,14 @@ SCENES.nat_recession = () => S("📉", kick("The economy"), "A recession", "Unem
 SCENES.nat_govdefy = () => S("🏛️", kick("The states"), "Governors defy you", `A bloc of governors from the other party refuses to carry out one of your policies and is suing.`, [ch("Cut their federal funds.", { press: -2, g: { rural: 2 } }, ""), ch("Negotiate.", { cap: -3 }, "", { req: capOK(3) })]);
 SCENES.nat_hearing = () => S("📺", kick("Congress"), "Oversight hearings", "House committees subpoena your aides over a scandal at an agency.", [ch("Cooperate.", { heat: -2 }, ""), ch("Claim executive privilege.", { heat: 4, press: -3 }, "")]);
 SCENES.nat_scotus = () => S("⚖️", kick("The Supreme Court"), "A Supreme Court vacancy", "A justice retires. Your nominee needs 51 votes in the Senate.", [ch("Nominate a consensus pick.", { press: 3, body: 2 }, ""), ch("Nominate a bold pick for your base.", { g: { progressives: G.me.party === "D" ? 8 : -6, faith: 2 }, body: -4 }, "")]);
+
+// ── Courting a company: the visit to headquarters ───────────────────
+SCENES.ceo_visit = (a) => {
+    const p = J().ec && J().ec.prospects.find((x) => x.id === a.id);
+    if (!p) return S("🏢", "", "They've moved on", "The company has already decided.", [ch("OK", {}, "")]);
+    const last = p.said[p.said.length - 1];
+    const intro = p.round === 0 ? `You fly to ${p.name}'s headquarters to meet the CEO, who is weighing ${placeName()} against ${p.rival} for ${p.jobs.toLocaleString()} jobs at about $${p.wage} an hour. ${STYLES[p.style]}.\n\nYou get three pitches. Their site-selection team will check every claim against the facts.` : `**You:** ${WANTS[last.k] ? WANTS[last.k].pitch : ""}\n\n**CEO:** “${last.reply}”${p.said.length > p.round ? `\n\n${p.said[p.said.length - 1].reply}` : ""}`;
+    if (p.round >= 3) return S("🏢", kick(`${p.name} headquarters`), "The meeting ends", `${intro}\n\nYour odds now: **${Math.round(prospectOdds(p) * 100)}%**. Make your offer on the Economy tab.`, [ch("Fly home.", {}, "")]);
+    return S("🏢", kick(`${p.name} headquarters · pitch ${p.round + 1} of 3`), `Meeting the CEO of ${p.name}`, intro,
+        Object.entries(WANTS).map(([k, W]) => ch(W.pitch, {}, "", { run: () => { pitch(p.id, k); queueScene("ceo_visit", { id: p.id }); return ""; } })));
+};

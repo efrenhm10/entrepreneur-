@@ -69,7 +69,14 @@ function week() {
     G.hist.push({ t: G.t, a: Math.round(G.approval), s: Math.round(Jx.m.safety), e: Math.round(Jx.m.economy), h: Math.round(Jx.m.housing), r: Math.round(Jx.fin.reserve) });
     if (G.hist.length > 520) G.hist.shift();
 }
+// Saves from before the Economy tab.
+function ensureEcon(Jx = J()) {
+    if (Jx.ec) return;
+    initEcon(Jx, G.level === "city" ? CITY_ECON[G.cityK].inds : G.level === "state" ? stateInds(CITY().st) : NATION_INDS);
+}
 function month() {
+    ensureEcon();
+    econMonth();
     G.capital = clamp(G.capital + capitalIncome(), 0, capitalCap());
     monthGroups();
     // Demands come due.
@@ -426,6 +433,7 @@ function becomeGovernor() {
         : [["Personal income tax", 0.45, "council"], ["Sales tax", 0.3, "council"], ["Corporate tax", 0.07, "council"], ["Fees & other", 0.18, "council"]];
     G.J = { kind: "state", name: St.name, pop: St.pop, lean: -St.lean * 2, dep: { AK: 35, NV: 25, HI: 25, LA: 20, NM: 22, TX: 15, MI: 18, WA: 14 }[stK] || 12, prio: [], m: Object.assign({}, m), m0: Object.assign({}, m), shock: {}, depts: {}, fin: makeFinance(St.budget, 0.02, lines.map(([n, share, ctl]) => ({ n, share, ctl, rate: 1 })), { pension: 0.7, debt: 0.4, reserve: St.rainy, rating: "AA" }), groups: {}, team: {}, laws: [], fy: { month: stK === "NY" ? 3 : stK === "TX" ? 8 : stK === "MI" ? 9 : 6 }, issues: St.issues.map((x) => [x, x, "economy"]) };
     DEPTS.state.forEach((d) => { G.J.depts[d.k] = 1; });
+    initEcon(G.J, stateInds(stK));
     const gk = Object.assign({}, St.groups, { police: 0.8, unions: 1, business: 1, progressives: 0.8 });
     Object.keys(gk).forEach((k) => { if (GROUPS[k]) G.J.groups[k] = { w: gk[k], l: 50 + rint(-5, 5) }; });
     G.gov = null;
@@ -441,6 +449,7 @@ function becomePresident() {
     G.J = { kind: "nation", name: "the United States", pop: 340e6, lean: 0, dep: 8, prio: [], m: Object.assign({}, m), m0: Object.assign({}, m), shock: {}, depts: {}, fin: makeFinance(NATION.revenue, 0.32, [["Individual income tax", 0.5, "council"], ["Payroll taxes", 0.34, "none"], ["Corporate tax", 0.1, "council"], ["Tariffs & other", 0.06, "council"]].map(([n, share, ctl]) => ({ n, share, ctl, rate: 1 })), { pension: 0.9, debt: 7, reserve: 0, rating: "AA+" }), groups: {}, team: {}, laws: [], fy: { month: 9 }, issues: [["The national debt", "", "services"], ["The cost of living", "", "housing"], ["Crime", "", "safety"]] };
     G.J.fin.debt = NATION.debt;
     DEPTS.nation.forEach((d) => { G.J.depts[d.k] = 1; });
+    initEcon(G.J, NATION_INDS);
     ["unions", "business", "police", "progressives", "faith", "latino", "rural", "suburbs", "tech", "energy", "military", "environment", "retirees", "teachers", "evangelicals"].forEach((k) => { if (GROUPS[k]) G.J.groups[k] = { w: 1, l: 50 + rint(-5, 5) }; });
     // Your coattails decide Congress.
     const swing = (G.approval - 50) / 4;
