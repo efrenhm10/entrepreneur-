@@ -1,5 +1,7 @@
 # Self Made
 
+> This repository also contains **[American Leader](americanleader/)**, a political simulation where you start as a newly elected big-city mayor and climb to governor and president. Open `americanleader/index.html` to play.
+>
 > This repository also contains **[Grassroots](grassroots/)**, a political career simulator: run for office anywhere in the US, from school board to President. Open `grassroots/index.html` to play.
 
 A realistic American entrepreneur life simulator that runs in the browser. Build a character, start anywhere in the United States, work a day job, save up, and try to turn any idea into a living.

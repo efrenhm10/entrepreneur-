@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>American Leader</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Special+Elite&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<section id="boot" class="screen active">
+    <div class="boot">
+        <div class="kicker">JANUARY 2026 · A POLITICAL SIMULATION</div>
+        <h1>AMERICAN LEADER</h1>
+        <p class="lede">You just won. Now you have to govern: a council that wants something for every vote, a governor who'd love to take over your city, a President who threatens to send troops, and a budget that has to balance. Do well enough and the voters might send you to the governor's mansion, and then the White House.</p>
+        <div class="row center">
+            <button class="primary big" data-act="newGame">Choose your city</button>
+            <button id="continueBtn" class="secondary big" data-act="continueGame">Continue</button>
+        </div>
+        <div class="boot-grid">
+            <div><b>🏙️ 22 real cities</b><span>From Atlanta and Chicago to Honolulu, Anchorage and Burlington, each with its real form of government, budget, unions, ward bosses and crises.</span></div>
+            <div><b>⚖️ A council with demands</b><span>Every member is a person with a ward, a bloc, a grudge and a price. Whip votes, trade favors, survive investigations and recalls.</span></div>
+            <div><b>🏛️ Meddling from above</b><span>Governors preempt your laws and take over your police. Presidents freeze grants and threaten troops. Party matters.</span></div>
+            <div><b>💰 Budgets that must balance</b><span>Pensions, rainy-day funds, credit ratings, tax caps and strikes.</span></div>
+            <div><b>🗳️ Mayor → Governor → President</b><span>Win reelection, run statewide, then go for the White House.</span></div>
+        </div>
+    </div>
+</section>
+
+<section id="cities" class="screen">
+    <div class="setup-head">
+        <div><div class="kicker">STEP 1 OF 3</div><h1>Choose your city</h1><p class="muted">You were just elected mayor. Bars show each city's condition today; green is good.</p></div>
+        <button class="secondary" data-act="screen" data-s="boot">← Back</button>
+    </div>
+    <div id="cityList"></div>
+</section>
+
+<section id="dossierScreen" class="screen"><div id="dossier"></div></section>
+<section id="creator" class="screen"><div id="creatorBody"></div></section>
+<section id="team" class="screen"><div id="teamBody"></div></section>
+
+<section id="play" class="screen">
+    <header id="hud"></header>
+    <nav id="dock"></nav>
+    <main id="view"></main>
+    <footer class="foot"><button class="link" data-act="screen" data-s="boot">Main menu (your game is saved)</button> <span class="muted tiny">Space = next week · 1–9 = choose an option</span></footer>
+</section>
+
+<section id="fall" class="screen"><div id="fallBody"></div></section>
+
+<div id="scene"></div>
+<div id="toasts"></div>
+
+<script src="js/portrait.js"></script>
+<script src="js/data_places.js"></script>
+<script src="js/data_rules.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/politics.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/scenes.js"></script>
+<script src="js/scenes_cities.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
