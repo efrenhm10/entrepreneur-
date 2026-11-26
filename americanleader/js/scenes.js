@@ -328,7 +328,7 @@ SCENES.ballot = (a) => {
     if (!pol) return S("🗳️", "", "No measure", "", [ch("OK", {}, "")]);
     const base = 0.5 + (G.approval - 50) / 120 - J().lean / 400 - (pol.ideo + 0.2) * 0.15;
     const decide = (boost) => { const yes = clamp(base + boost + rnd(-0.06, 0.06), 0.1, 0.9); b.voted = true; if (yes > 0.5) { const out = []; enact(b, out); return `Voters approve it, ${Math.round(yes * 100)}% to ${100 - Math.round(yes * 100)}%.`; } b.stage = "failed"; b.why = "Voters said no"; G.approval -= 1; return `Voters reject it, ${100 - Math.round(yes * 100)}% to ${Math.round(yes * 100)}%.`; };
-    return S("🗳️", kick("Ballot measure"), `Voters decide: ${pol.n}`, `The ${bodyShort()} passed it, but it needs voter approval. ${pol.payer ? `Opponents, led by ${pol.payer}, are spending heavily against it.` : ""} Early polling has it at about **${Math.round(clamp(base, 0.1, 0.9) * 100)}%**.`,
+    return S("🗳️", kick("Ballot measure"), `Voters decide: ${pol.n}`, `The ${bodyShort()} passed it, but ${G.level === "state" ? "it amends the state constitution, so" : ""} it needs voter approval. ${pol.payer ? `Opponents, led by ${pol.payer}, are spending heavily against it.` : ""} Early polling has it at about **${Math.round(clamp(base, 0.1, 0.9) * 100)}%**.`,
         [ch("Campaign hard for it.", { cap: -5, funds: -Math.min(G.funds, 2e5) }, "", { run: () => decide(0.07), req: capOK(5) }), ch("Let the voters decide.", {}, "", { run: () => decide(0) })]);
 };
 
@@ -393,4 +393,52 @@ SCENES.project_open = (a) => {
         ch(`Invite ${fedName} and thank Washington.`, { a: 0.3, press: 2, pres: 8 }, sameParty(G.pres) ? "The administration loves the photo op, and remembers who said thanks." : "A rare bipartisan photo. The White House notices."),
         ch("Skip it and send a deputy.", { press: -1, cap: 1 }, "The papers run a photo of the ribbon with an empty spot where you should be.")
     ]);
+};
+
+// ── Asking departments to cut ───────────────────────────────────────
+SCENES.dept_cut = (a) => {
+    const all = a.k === "all", pct = all ? 0.03 : 0.05;
+    const ds = all ? deptList() : deptList().filter((d) => d.k === a.k);
+    if (!ds.length) return S("✂️", "", "Never mind", "", [ch("OK", {}, "")]);
+    const amt = sum(ds, (d) => deptCutMoney(d, pct));
+    const d = ds[0], lvl = J().depts[d.k] || 1;
+    const head = all ? `Your budget director` : `The head of ${d.n.toLowerCase()}`;
+    const what = all ? "every agency trims, and every constituency feels a little of it" : CUT_EFFECT[d.k] || "fewer people doing the same work";
+    const cut = (f) => () => {
+        ds.forEach((x) => {
+            J().depts[x.k] = clamp((J().depts[x.k] || 1) - pct * f, 0.6, 1.4);
+            if (f > 0.5) Object.entries(x.grp).forEach(([g, w]) => { if (J().groups[g]) groupMove(g, -w * (all ? 2 : 5)); });
+        });
+        if (J().budget && ["drafting", "rejected"].includes(J().budget.status)) ds.forEach((x) => { J().budget.depts[x.k] = J().depts[x.k]; });
+        log(`${all ? "Every department" : d.n} cuts ${Math.round(pct * f * 100)}% mid-year (${money(amt * f)}).`, "info");
+        return `${money(amt * f)} a year saved.`;
+    };
+    return S("✂️", kick("Mid-year cuts"), all ? `Ask every department for ${Math.round(pct * 100)}%` : `Ask ${d.n} to cut ${Math.round(pct * 100)}%`,
+        `${head} comes back with the numbers. A ${Math.round(pct * 100)}% cut saves about **${money(amt)} a year**, and means ${what}.${!all && lvl < 0.92 ? " They warn they're already cut to the bone." : ""}${!all && d.k === "police" ? " The union is already calling reporters." : ""}`, [
+            ch(`Make the full cut.`, { press: -1 }, "", { run: cut(1) }),
+            ch(`Find savings without layoffs: vacancies, overtime, travel, consultants (about ${money(amt * 0.4)}).`, {}, "", { run: cut(0.4) }),
+            ch("Never mind.", {}, "")
+        ]);
+};
+
+// ── The legislature's add-ons, and the line-item veto ──────────────
+SCENES.line_items = (a) => {
+    if (G.level !== "state") return S("🖊️", "", "Signed", "", [ch("OK", {}, "")]);
+    if (!a.items) {
+        const ms = shuffle(bodyMembers().slice()).slice(0, 3);
+        const what = ["a new arena", "a convention center expansion", "a minor-league ballpark", "a bridge to a resort island", "a museum in their hometown", "a road widening by a developer's land", "a university building named for them", "a rural broadband grant", "a county fairgrounds renovation"];
+        a.items = ms.map((p, i) => ({ who: p.id, name: p.name, what: what[(i * 3 + rint(0, 2)) % what.length], amt: J().fin.base * rnd(0.0008, 0.003), lead: !!(chairOf && p === ms[0]) }));
+    }
+    const items = a.items, tot = sum(items, (x) => x.amt), big = items.slice().sort((x, y) => y.amt - x.amt)[0];
+    const list = items.map((x) => `• **${money(x.amt)}** for ${x.what}, from ${x.name}`).join("\n");
+    const noLIV = (STATE_M[CITY().st] || {}).noLIV;
+    const pay = (arr) => { arr.forEach((x) => spendOneTime(x.amt)); return ""; };
+    const whoFx = (v, arr) => Object.fromEntries(arr.map((x) => [x.who, v]));
+    if (noLIV) return S("🖊️", kick("The budget bill"), "The legislature's add-ons", `Before passing your budget, the ${STATE().legis} slipped in ${money(tot)} of pet projects:\n${list}\n\n${STATE().name}'s governor has **no line-item veto**: you sign the whole budget or veto the whole thing.`, [
+        ch("Sign it. That's how budgets pass here.", { body: 3, who: whoFx(6, items) }, "", { run: () => pay(items) }),
+        ch("Sign it, but call out the pork publicly.", { body: -3, press: 3, a: 0.5, who: whoFx(-8, items) }, "", { run: () => pay(items) })]);
+    return S("🖊️", kick("Line-item veto"), "Your pen, their projects", `The ${STATE().legis} passed your budget, plus **${money(tot)}** in projects lawmakers added for their districts:\n${list}\n\nYou can strike any line before you sign.`, [
+        ch(`Veto all of it. “Not with this deficit.”`, { body: -6, press: 3, a: 0.8, who: whoFx(-18, items), g: { business: 2 } }, `You save ${money(tot)}. Three lawmakers will remember.`),
+        ch(`Veto only the biggest: ${big.what} (${money(big.amt)}).`, { body: -2, press: 1, a: 0.5, who: { [big.who]: -22 } }, "", { run: () => pay(items.filter((x) => x !== big)) }),
+        ch("Sign it all. Those votes will come in handy.", { body: 4, who: whoFx(12, items) }, "", { run: () => pay(items) })]);
 };

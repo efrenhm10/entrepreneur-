@@ -239,8 +239,10 @@ function shock(k, v, Jx = J()) { if (!METRICS[k]) return; Jx.shock[k] = (Jx.shoc
 // Real-world numbers that move with the conditions.
 function liveStats() {
     const Jx = J();
-    if (Jx.kind !== "city") return null;
-    const s = CITY().stats;
+    if (Jx.kind === "nation") return null;
+    const SM = Jx.kind === "state" ? STATE_M[CITY().st] : null;
+    if (Jx.kind === "state" && !SM) return null;
+    const s = SM || CITY().stats, pop = SM ? STATE().pop : CITY().pop;
     const r = (k, inv) => { const d = (Jx.m[k] - Jx.m0[k]) / 100; return inv ? Math.max(0.2, 1 - d * 1.6) : 1 + d * 1.2; };
     return {
         homicides: Math.round(s.homicides * r("safety", true)),
@@ -249,7 +251,7 @@ function liveStats() {
         unemp: Math.max(2, s.unemp - (Jx.m.economy - Jx.m0.economy) / 9),
         wage: Math.round((14 + (Jx.m.wages / 100) * 22) * Math.pow(1.03, years()) * 100) / 100,
         grocery: Math.round(100 + (60 - Jx.m.food) * 0.8),
-        breaks: Math.max(0, Math.round((100 - Jx.m.water) * CITY().pop / 1e5 * 0.9))
+        breaks: Math.max(0, Math.round((100 - Jx.m.water) * pop / 1e5 * 0.9))
     };
 }
 

@@ -51,6 +51,10 @@ A("introduce", (el) => {
     log(`You send the ${b.title} to the ${bodyShort()}.`, "info");
     toast("Bill introduced", `It goes to committee. Whip count: ${tally(b, 0).yes}–${tally(b, 0).no}.`, []);
 });
+A("deptCut", (el) => queueScene("dept_cut", { k: el.dataset.k }));
+A("deptAdd", (el) => { const r = supplemental(el.dataset.k); if (r) toast("Supplemental budget", r, []); });
+A("mayorAid", (el) => { const r = mayorAid(el.dataset.id); if (r) toast("State aid", r, []); });
+A("mayorFight", (el) => { const r = mayorFight(el.dataset.id); if (r) toast("Picking a fight", r, []); });
 A("applyGrant", (el) => toast("Federal grant", applyGrant(el.dataset.k), []));
 A("askState", (el) => { const pol = POLICY[el.dataset.k]; const r = askState(el.dataset.k); if (r) toast(`${STATE().name} capitol`, r, []); });
 A("execOrder", (el) => {

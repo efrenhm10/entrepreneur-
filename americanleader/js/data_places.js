@@ -663,3 +663,29 @@ const SCHOOL_GOV = {
     albuquerque: { ctl: "board", n: "Albuquerque Public Schools", share: 0, d: "An elected board runs Albuquerque Public Schools, one of the largest districts in the West, separate from City Hall." },
     anchorage: { ctl: "council", n: "the Anchorage School District", share: 0, d: "The elected school board runs the schools, but the Assembly sets the district's total budget and tax. Most of the money comes from Juneau's per-student formula." }
 };
+
+// Where each state starts. m: safety, housing, homeless, streets, transit, schools, economy, environment,
+// services, trust, wages, food, water (0–100, higher is better). Rough, from national rankings.
+// stats: people homeless, unemployment %, median rent, homicides a year. noLIV: no line-item veto.
+const STATE_M = {
+    GA: { m: [48, 55, 55, 50, 30, 45, 66, 50, 45, 45, 47, 50, 50], homelessN: 12300, unemp: 3.5, rent: 1500, homicides: 1050 },
+    AZ: { m: [50, 45, 48, 55, 30, 38, 64, 40, 45, 45, 50, 52, 38], homelessN: 14700, unemp: 4.1, rent: 1600, homicides: 640 },
+    WI: { m: [60, 60, 62, 45, 35, 58, 58, 55, 58, 55, 52, 58, 50], homelessN: 4800, unemp: 3.2, rent: 1150, homicides: 290 },
+    PA: { m: [52, 58, 60, 40, 50, 55, 55, 50, 52, 45, 52, 55, 42], homelessN: 13000, unemp: 3.8, rent: 1250, homicides: 980 },
+    NV: { m: [50, 42, 40, 55, 30, 32, 52, 42, 45, 45, 48, 50, 45], homelessN: 8700, unemp: 5.6, rent: 1500, homicides: 270, noLIV: true },
+    MI: { m: [50, 62, 60, 30, 32, 45, 52, 52, 50, 45, 50, 52, 38], homelessN: 8800, unemp: 4.4, rent: 1150, homicides: 640 },
+    CA: { m: [50, 15, 15, 40, 45, 48, 62, 45, 45, 45, 45, 40, 45], homelessN: 187000, unemp: 5.5, rent: 2600, homicides: 1950 },
+    WA: { m: [52, 30, 30, 48, 55, 58, 66, 55, 55, 52, 62, 45, 55], homelessN: 28000, unemp: 4.6, rent: 2000, homicides: 400 },
+    OR: { m: [48, 32, 25, 45, 50, 45, 55, 50, 48, 45, 55, 45, 52], homelessN: 22900, unemp: 4.8, rent: 1700, homicides: 230 },
+    TX: { m: [50, 50, 55, 50, 28, 45, 68, 42, 40, 48, 50, 55, 45], homelessN: 27900, unemp: 4.1, rent: 1400, homicides: 2000 },
+    IL: { m: [45, 55, 55, 42, 55, 55, 52, 52, 45, 35, 52, 50, 45], homelessN: 11900, unemp: 4.6, rent: 1300, homicides: 1000 },
+    LA: { m: [32, 52, 55, 30, 25, 30, 40, 30, 38, 35, 38, 40, 30], homelessN: 7400, unemp: 4.4, rent: 1100, homicides: 650 },
+    HI: { m: [62, 15, 22, 35, 40, 45, 50, 45, 50, 50, 50, 25, 45], homelessN: 11600, unemp: 3.0, rent: 2300, homicides: 40 },
+    MN: { m: [58, 55, 55, 50, 50, 62, 60, 58, 62, 55, 58, 55, 55], homelessN: 8000, unemp: 3.3, rent: 1300, homicides: 180 },
+    NY: { m: [55, 25, 25, 40, 70, 52, 58, 52, 48, 42, 52, 40, 45], homelessN: 158000, unemp: 4.2, rent: 2200, homicides: 650 },
+    RI: { m: [60, 40, 50, 30, 40, 50, 50, 50, 50, 45, 52, 45, 42], homelessN: 2400, unemp: 4.5, rent: 1700, homicides: 30, noLIV: true },
+    ME: { m: [70, 42, 52, 38, 25, 55, 48, 55, 52, 55, 48, 48, 50], homelessN: 2700, unemp: 3.2, rent: 1400, homicides: 30 },
+    VT: { m: [68, 32, 40, 40, 25, 62, 48, 58, 55, 60, 52, 45, 52], homelessN: 3400, unemp: 2.4, rent: 1450, homicides: 20, noLIV: true },
+    AK: { m: [40, 48, 45, 35, 20, 32, 42, 35, 40, 45, 52, 30, 40], homelessN: 2700, unemp: 4.6, rent: 1400, homicides: 60 },
+    NM: { m: [30, 50, 42, 40, 30, 22, 42, 45, 40, 42, 40, 45, 38], homelessN: 3800, unemp: 4.2, rent: 1100, homicides: 250 }
+};

@@ -81,6 +81,7 @@ function month() {
     monthGroups();
     monthCandidates();
     monthProjects();
+    monthMayors();
     // Demands come due.
     G.demands.filter((d) => d.due <= G.t).forEach((d) => refuseDemand(d.id, true));
     monthDemands();
@@ -213,6 +214,7 @@ function voteBudget() {
         if (taxUp > 0.005) { groupsReact(["taxup"], taxUp * 40); G.approval -= taxUp * 60; }
         if (taxUp < -0.005) { groupsReact(["taxdown"], -taxUp * 40); G.approval += -taxUp * 30; }
         capitalBonus(5, "Budget passed");
+        if (G.level === "state") queueScene("line_items", { fy: b.fy });
         log(`The FY${b.fy} budget passes (${r.map((x) => `${x.ch.short} ${x.yes}–${x.total - x.yes}`).join(", ")}).`, "good");
         toast(`FY${b.fy} budget passes`, r.map((x) => `${x.ch.short} ${x.yes}–${x.total - x.yes}`).join(" · "), []);
         bodyMembers().forEach((p) => { if (budgetScore(p) < -0.4) p.grudge += 0.5; });
@@ -437,8 +439,7 @@ function takeHigherOffice() {
 function becomeGovernor() {
     const St = STATE(), stK = CITY().st;
     G.level = "state"; G.levelSince = G.t; G.termsHere = 1; G.terms++;
-    const cityM = fullCityM(G.cityK);
-    const m = {}; MKEYS.forEach((k) => { m[k] = clamp(cityM[k] + ({ housing: 14, homeless: 12, safety: 10, transit: -8, trust: 5 }[k] || 0) - St.lean * 0.1, 15, 85); });
+    const m = stateStartM(stK);
     const noIncome = ["TX", "NV", "WA", "AK"].includes(stK);
     const lines = stK === "AK" ? [["Oil & gas revenue", 0.55, "council"], ["Permanent Fund earnings", 0.3, "none"], ["Fees & other", 0.15, "council"]]
         : stK === "NM" ? [["Oil & gas revenue", 0.35, "none"], ["Gross receipts tax", 0.3, "council"], ["Personal income tax", 0.18, "council"], ["Other", 0.17, "council"]]
@@ -449,7 +450,9 @@ function becomeGovernor() {
     initEcon(G.J, stateInds(stK));
     const gk = Object.assign({}, St.groups, { police: 0.8, unions: 1, business: 1, progressives: 0.8 });
     Object.keys(gk).forEach((k) => { if (GROUPS[k]) G.J.groups[k] = { w: gk[k], l: 50 + rint(-5, 5) }; });
+    G.J.stateBase = true;
     G.gov = null;
+    makeMayors();
     makeBody(G.J); makeTeamCandidates();
     G.demands = []; G.bills = []; G.honeymoon = 26; G.approval = Math.max(50, G.approval);
     G.career.push({ t: G.t, office: `Governor of ${St.name}` });
@@ -596,4 +599,86 @@ function monthProjects() {
     });
     // Openings.
     (J().projects || []).filter((p) => G.t >= p.done && !p.opened).forEach((p) => { p.opened = true; log(`${p.name} is finished.`, "good"); queueScene("project_open", { id: p.id, level: G.level }); });
+}
+
+
+// ── Governing a state ───────────────────────────────────────────────
+function stateStartM(stK) {
+    const SM = STATE_M[stK];
+    if (SM) return Object.fromEntries(MKEYS.map((k, i) => [k, clamp(SM.m[i] + rint(-2, 2), 8, 92)]));
+    const cityM = fullCityM(G.cityK);
+    return Object.fromEntries(MKEYS.map((k) => [k, clamp(cityM[k] + ({ housing: 14, homeless: 12, safety: 10, transit: -8, trust: 5 }[k] || 0), 15, 85)]));
+}
+// Saves from before state data existed: keep the progress, move the baseline.
+function stateFixup() {
+    if (!G || G.level !== "state" || !G.J || G.J.stateBase) return;
+    const base = stateStartM(CITY().st);
+    MKEYS.forEach((k) => { const d = G.J.m[k] - G.J.m0[k]; G.J.m0[k] = base[k]; G.J.m[k] = clamp(base[k] + d, 1, 99); });
+    G.J.stateBase = true;
+    if (!G.mayors) makeMayors();
+}
+// The mayors you now have to deal with.
+function makeMayors() {
+    const names = STATE().cities.filter((c) => c !== CITY().name).concat([CITY().name]);
+    G.mayors = names.map((c) => {
+        const mine = c === CITY().name;
+        const party = mine ? G.me.party : chance(0.72) ? "D" : "R";
+        return { id: uid("my"), city: c, name: personName(), party, rel: mine ? rint(20, 40) : party === G.me.party ? rint(0, 25) : rint(-25, 5), note: mine ? "your successor" : "" };
+    });
+}
+function mayorAid(id) {
+    const my = (G.mayors || []).find((x) => x.id === id);
+    if (!my || G.capital < 2) return "";
+    G.capital -= 2;
+    const amt = J().fin.base * 0.002;
+    spendOneTime(amt);
+    my.rel = clamp(my.rel + 14, -100, 100);
+    if (J().groups.rural) groupMove("rural", -1);
+    log(`You send ${money(amt)} in state aid to ${my.city}.`, "info");
+    return `Mayor ${my.name} holds a press conference thanking you. ${my.city} gets ${money(amt)}.`;
+}
+function mayorFight(id) {
+    const my = (G.mayors || []).find((x) => x.id === id);
+    if (!my || G.capital < 1) return "";
+    G.capital -= 1;
+    my.rel = clamp(my.rel - 15, -100, 100);
+    G.press = clamp(G.press + 2, 0, 100);
+    if (J().groups.rural) groupMove("rural", 3);
+    if (J().groups.suburbs) groupMove("suburbs", 1);
+    log(`You blast Mayor ${my.name} of ${my.city} over crime and spending.`, "info");
+    return `${my.city}'s mayor fires back on the evening news. Rural lawmakers love it.`;
+}
+function monthMayors() {
+    if (G.level !== "state" || !G.mayors) return;
+    G.mayors.forEach((my) => {
+        if (my.rel > 35 && chance(0.06)) { G.approval += 0.4; log(`Mayor ${my.name} of ${my.city} praises your help on TV.`, "good"); }
+        if (my.rel < -35 && chance(0.08)) { G.approval -= 0.5; G.press -= 1; log(`Mayor ${my.name} of ${my.city} blames you for the city's problems.`, "warn"); }
+        my.rel += (0 - my.rel) * 0.02;
+    });
+}
+
+// ── Mid-year budget changes ─────────────────────────────────────────
+// The executive can hold back money any time (ask departments to cut); more money needs the legislature.
+const CUT_EFFECT = {
+    police: "fewer officers on patrol and slower 911 response", fire: "rolling firehouse closures (brownouts)", streets: "fewer potholes filled and water mains replaced", transit: "longer waits between buses", housing: "fewer shelter beds and housing vouchers", sanitation: "slower trash pickup and 311 response", parks: "shorter library hours and fewer youth programs", econdev: "fewer job-training slots", resilience: "delayed flood and heat projects", admin: "a hiring freeze and slower permits", schools: "larger class sizes and fewer counselors",
+    k12: "larger class sizes and teacher layoffs across the state", medicaid: "lower payments to hospitals and nursing homes, and longer waits", higher: "tuition increases at state universities", roads: "road and bridge projects pushed back a year", corrections: "prison understaffing and closed units", humansvc: "longer lines for SNAP and child care help", aid: "less money for cities and counties, which will blame you", environment: "fewer inspectors and slower disaster response",
+    defense: "fewer training hours and delayed ship and aircraft programs", health: "smaller NIH grants and slower CDC response", homeland: "fewer agents and immigration judges", veterans: "longer VA wait times", transport: "infrastructure grants delayed", education: "smaller Pell grants and Title I money", hud: "fewer housing vouchers and SNAP outreach", energy: "slower clean energy and grid programs", science: "fewer research grants"
+};
+function deptCutMoney(d, pct) { return d.share * J().fin.base * (1 - J().fin.fixed) * pct; }
+function supplemental(k) {
+    const d = deptList().find((x) => x.k === k);
+    if (!d || G.capital < 3) return "";
+    G.capital -= 3;
+    const ms = bodyMembers();
+    const avg = ms.length ? sum(ms, (p) => p.loyal) / ms.length : 0;
+    const mine = ms.length ? ms.filter((p) => p.party === G.me.party).length / ms.length : 0.5;
+    const odds = clamp(0.35 + avg / 120 + (mine - 0.5) * 0.8, 0.08, 0.9);
+    if (chance(odds)) {
+        J().depts[k] = clamp((J().depts[k] || 1) + 0.05, 0.6, 1.4);
+        Object.entries(d.grp).forEach(([g, w]) => { if (J().groups[g]) groupMove(g, w * 3); });
+        log(`The ${bodyShort()} approves ${money(deptCutMoney(d, 0.05))} more for ${d.n.toLowerCase()}.`, "good");
+        return `Approved. ${d.n} gets ${money(deptCutMoney(d, 0.05))} more this year.`;
+    }
+    log(`The ${bodyShort()} rejects your request for more money for ${d.n.toLowerCase()}.`, "warn");
+    return `The ${bodyShort()} says no (you had about ${Math.round(odds * 100)}% odds). Work members on the ${bodyShort()} tab first.`;
 }

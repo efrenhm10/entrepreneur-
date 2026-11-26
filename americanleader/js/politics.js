@@ -203,7 +203,7 @@ function enact(b, out, overridden) {
     if (!pol) return;
     if (J().laws.some((l) => l.k === pol.k)) return;
     // Some taxes have to go to the voters first.
-    if (pol.ballot && G.level === "city" && !b.voted) { b.stage = "ballot"; queueScene("ballot", { id: b.id }); if (out) out.push(["info", `The ${b.title} goes to the voters.`]); return; }
+    if (needsBallot(pol) && !b.voted) { b.stage = "ballot"; queueScene("ballot", { id: b.id }); if (out) out.push(["info", `The ${b.title} goes to the voters.`]); return; }
     J().laws.push({ k: pol.k, t: G.t, water: !!b.water });
     const yr = Math.floor(years());
     if (pol.once && (J().onceYr || {})[pol.k] !== yr) { J().onceYr = Object.assign(J().onceYr || {}, { [pol.k]: yr }); spendOneTime(-pol.once * J().fin.base); log(`${pol.n}: ${money(pol.once * J().fin.base)} lands in the rainy-day fund.`, "good"); }
@@ -226,12 +226,15 @@ function blocked(pol) {
     if (J().laws.some((l) => l.k === pol.k)) return "Already law";
     if (G.bills.some((b) => b.k === pol.k && !["law", "failed", "vetoed", "withdrawn"].includes(b.stage))) return "Already moving";
     if (pol.unless) { const u = pol.unless(); if (u) return u; }
+    if (G.level === "state" && pol.stWhy && pol.stWhy[CITY().st]) return pol.stWhy[CITY().st];
     if (G.level === "city" && pol.preempt && pol.preempt.includes(CITY().st)) return `${STATE().name} law forbids it`;
     if (G.level === "city" && needsState(pol)) return `Needs permission from the state of ${STATE().name}`;
     if (G.level === "city" && (G.preempted || []).includes(pol.k)) return `Preempted by the state`;
     return null;
 }
 
+// Measures voters must approve: some city taxes, and state constitutional amendments.
+function needsBallot(pol) { return G.level === "city" ? !!pol.ballot : G.level === "state" ? (pol.ballotSt || []).includes(CITY().st) : false; }
 // Some city powers exist only where the state has granted them.
 function needsState(pol) { return G.level === "city" && !(pol.unless && pol.unless()) && pol.stateOK && !pol.stateOK.includes(CITY().st) && !(G.stateAuth || []).includes(pol.k) && !(pol.preempt || []).includes(CITY().st); }
 // Ask the governor and legislature for the power. The odds depend on party, relations and how the state treats its cities.

@@ -118,6 +118,7 @@ function viewsFor() {
     return [["office", "🏛️", G.level === "city" ? "City Hall" : G.level === "state" ? "Governor's Office" : "Oval Office"], ["issues", "🎯", "Major Issues"], ["economy", "🏭", "Economy"], ["council", "⚖️", body], ["laws", "📜", G.level === "city" ? "Ordinances" : "Laws"], ["budget", "💰", "Budget"], ["place", G.level === "city" ? "🏙️" : "🗺️", G.level === "city" ? "The City" : G.level === "state" ? "The State" : "The Nation"], ["power", "🤝", "Power"], ["team", "👔", G.level === "city" ? "Team" : "Cabinet"], ["campaign", "🗳️", "Campaign"], ["record", "📖", "Record"]];
 }
 function render() {
+    stateFixup();
     if (!G) return;
     if (G.over) { closeScene(); renderFall(); showScreen("fall"); return; }
     if (!$("#play").classList.contains("active")) showScreen("play");
@@ -329,7 +330,7 @@ function viewIssues() {
         const trend = I.dep ? "" : `<p class="tiny ${d >= 0 ? "good" : "bad"}">${metricName(I.m, G.level)} ${Math.round(v)} (${sgn(d)} since you took office), heading ${t > v + 1 ? "up ▲" : t < v - 1 ? "down ▼" : "nowhere"}</p>`;
         return `<section class="panel ${on ? "bill" : ""}"><h3>${I.i} ${esc(I.n)} ${on ? '<span class="pill">Priority</span>' : ""} ${loc ? '<span class="pill">Local hot button</span>' : ""}</h3>
             ${meter(I.dep ? "Exposure" : "How bad it is", sev / 100, false, Math.round(sev))}
-            <p class="small">${esc(I.d)}${issueStat(I) ? ` <b>${esc(issueStat(I))}</b>.` : ""}</p>
+            <p class="small">${esc(G.level !== "city" && I.ds ? I.ds : I.d)}${issueStat(I) ? ` <b>${esc(issueStat(I))}</b>.` : ""}</p>
             ${trend}
             ${grantRow(I.m)}
             ${I.k === "schools" && schoolGov() ? `<p class="small">🏫 <b>Who runs the schools:</b> ${esc(schoolGov().d)}${schoolCtl() === "mayor" && schoolGov().ctl !== "mayor" ? " <b>Under your new mayoral control, you now run them.</b>" : ""}</p>` : ""}
@@ -443,31 +444,33 @@ function viewBudget() {
             <div class="row"><button class="primary" data-act="submitBudget">Send it to the ${esc(bodyShort())}</button><span class="tiny muted">Due ${dateStr(b.due)} · fiscal year starts ${dateStr(b.start)}</span></div>`, "bill");
     } else if (b && b.status === "submitted") draft = panel(`FY${b.fy} budget`, `<p class="small">With the ${esc(bodyShort())}. The vote is ${dateStr(b.vote)}.</p>${withDraft(() => budgetTally()).map((x) => `<p class="small">${esc(x.ch.short)}: <b class="${x.pass ? "good" : "bad"}">${x.yes}–${x.total - x.yes}</b> (need ${x.need})</p>`).join("")}`);
     const sg = schoolGov(Jx);
-    const depts = deptList().map((d) => `<div class="row small"><span style="flex:1">${d.i} ${d.n}</span><b>${Math.round((Jx.depts[d.k] || 1) * 100)}%</b></div>`).join("") + (sg && !deptList().some((d) => d.k === "schools") ? `<p class="tiny muted">🏫 No school line: ${esc(sg.n)} ${sg.ctl === "state" ? "is run by the state" : sg.ctl === "county" ? "is run county-wide" : "has its own budget and taxes"}. See Major Issues for what the city can still do.</p>` : "");
+    const depts = `<p class="tiny muted">Any time of year you can hold money back (ask a department to cut). Adding money mid-year needs the ${esc(bodyShort())}.</p>` + deptList().map((d) => `<div class="budget-row"><span>${d.i} ${d.n}<br><span class="tiny muted">${money(d.share * Jx.fin.base * (1 - Jx.fin.fixed) * (Jx.depts[d.k] || 1))}/yr</span></span><span><button class="mini" data-act="deptCut" data-k="${d.k}" title="Ask for a 5% cut">✂️ −5%</button><button class="mini" data-act="deptAdd" data-k="${d.k}" ${G.capital < 3 ? "disabled" : ""} title="Ask the ${esc(bodyShort())} for 5% more (3 capital)">➕ +5% (3)</button></span><b class="${(Jx.depts[d.k] || 1) > 1.001 ? "good" : (Jx.depts[d.k] || 1) < 0.999 ? "bad" : ""}">${Math.round((Jx.depts[d.k] || 1) * 100)}%</b></div>`).join("") + `<div class="row"><button data-act="deptCut" data-k="all">✂️ Ask every department for 3% savings</button></div>` + (sg && !deptList().some((d) => d.k === "schools") ? `<p class="tiny muted">🏫 No school line: ${esc(sg.n)} ${sg.ctl === "state" ? "is run by the state" : sg.ctl === "county" ? "is run county-wide" : "has its own budget and taxes"}. See Major Issues for what the city can still do.</p>` : "");
     const next = b && b.start > G.t ? "" : `<p class="small muted">Budget season opens about three months before the fiscal year starts.</p>`;
     return `<div class="cols2"><div>${draft}${panel("This year's money", `
         <div class="row"><div>Revenue<br><b>${money(R)}</b></div><div>Spending<br><b>${money(Sp)}</b></div><div>${R - Sp >= 0 ? "Surplus" : "Deficit"}<br><b class="${R - Sp >= 0 ? "good" : "bad"}">${money(R - Sp)}</b></div></div>
         <div class="row"><div>${G.level === "nation" ? "National debt" : "Rainy-day fund"}<br><b>${money(G.level === "nation" ? f.debt : f.reserve)}</b></div><div>Pensions<br><b>${Math.round(f.pension * 100)}% funded</b></div><div>Rating<br><b>${f.rating}</b></div></div>
         ${f.lines.map((l) => `<div class="row small"><span style="flex:1">${esc(l.n)}</span><b>${money(l.share * f.base * Math.pow(1.03, years()) * l.rate)}</b></div>`).join("")}
         <p class="tiny muted">Costs (wages, health care, pensions) grow faster than revenue: every year the gap widens unless the economy grows or you act.</p>${next}`)}</div>
-        <div>${panel("Department funding", depts)}${revenuePanel(Jx)}${debtPanel(Jx)}${panel("Past years", (f.hist || []).slice(-6).map((h) => `<p class="small">${h.y}: revenue ${money(h.rev)} · spending ${money(h.spend)} · ${G.level === "nation" ? "debt " + money(h.debt) : "reserve " + money(h.reserve)}</p>`).join("") || "<p class='muted small'>No history yet.</p>")}</div></div>`;
+        <div>${panel(G.level === "city" ? "Department funding" : "Agencies and their funding", depts)}${revenuePanel(Jx)}${debtPanel(Jx)}${panel("Past years", (f.hist || []).slice(-6).map((h) => `<p class="small">${h.y}: revenue ${money(h.rev)} · spending ${money(h.spend)} · ${G.level === "nation" ? "debt " + money(h.debt) : "reserve " + money(h.reserve)}</p>`).join("") || "<p class='muted small'>No history yet.</p>")}</div></div>`;
 }
 
 // New ways to raise money: what this city may do under state law.
 function revenuePanel(Jx) {
-    if (G.level !== "city") return "";
-    const rank = (p) => Jx.laws.some((l) => l.k === p.k) ? 3 : !blocked(p) ? 0 : needsState(p) ? 1 : (p.preempt || []).includes(CITY().st) ? 4 : 2;
-    const rows = POLICIES.filter((p) => p.lvl === "city" && p.cat === "Revenue").sort((a, b) => rank(a) - rank(b)).map((p) => {
+    if (G.level === "nation") return "";
+    const st = CITY().st;
+    const banned = (p) => (G.level === "city" ? (p.preempt || []).includes(st) : !!(p.stWhy && p.stWhy[st]));
+    const rank = (p) => Jx.laws.some((l) => l.k === p.k) ? 3 : !blocked(p) ? 0 : needsState(p) ? 1 : banned(p) ? 4 : 2;
+    const rows = POLICIES.filter((p) => p.lvl === G.level && (p.cat === "Revenue" || (G.level === "state" && p.cat === "Taxes"))).sort((a, b) => rank(a) - rank(b)).map((p) => {
         const law = Jx.laws.some((l) => l.k === p.k);
         const bill = G.bills.find((b) => b.k === p.k && !["law", "failed", "vetoed", "withdrawn"].includes(b.stage));
         const why = blocked(p);
-        const amt = p.once ? `one-time ${money(p.once * Jx.fin.base)}${p.cost > 0 ? `, then −${money(p.cost * Jx.fin.base)}/yr` : ""}` : `+${money(-p.cost * Jx.fin.base)}/yr`;
+        const amt = p.once ? `one-time ${money(p.once * Jx.fin.base)}${p.cost > 0 ? `, then −${money(p.cost * Jx.fin.base)}/yr` : ""}` : p.cost > 0 ? `<span class="bad">−${money(p.cost * Jx.fin.base)}/yr</span>` : `+${money(-p.cost * Jx.fin.base)}/yr`;
         const status = law ? '<span class="pill">In effect</span>' : bill ? `<span class="pill">${bill.stage === "ballot" ? "On the ballot" : bill.stage === "desk" ? "On your desk" : "In the " + esc(bodyShort())}</span>` : why ? `<span class="tiny ${needsState(p) ? "" : "bad"}">${needsState(p) ? "⚠️ " : "⛔ "}${esc(why)}</span>` : "";
         const btn = law || bill ? "" : needsState(p) ? askBtn(p) : !why ? `<button class="mini" data-act="introduce" data-k="${p.k}" ${G.capital < 3 ? "disabled" : ""}>Introduce (3)</button>` : "";
-        return `<div class="opt ${law ? "cur" : ""}" style="${(p.preempt || []).includes(CITY().st) ? "opacity:.6" : ""}"><div><b>${esc(p.n)}</b> <b class="good small">${amt}</b>${p.ballot ? ' <span class="pill">Ballot</span>' : ""}<p class="tiny muted">Paid by ${esc(p.payer || "taxpayers")} · ${policyReact(p)}</p>${status}</div><div class="col-btns">${btn}</div></div>`;
+        return `<div class="opt ${law ? "cur" : ""}" style="${banned(p) ? "opacity:.6" : ""}"><div><b>${esc(p.n)}</b> <b class="good small">${amt}</b>${needsBallot(p) ? ' <span class="pill">Ballot</span>' : ""}<p class="tiny muted">Paid by ${esc(p.payer || "taxpayers")} · ${policyReact(p)}</p>${status}</div><div class="col-btns">${btn}</div></div>`;
     }).join("");
     const auth = (G.stateAuth || []).length;
-    return panel("New revenue", `<p class="tiny muted">Ways cities raise money without touching the property tax. Cities can only use the powers ${esc(STATE().name)} gives them: some are allowed, some need permission from the governor and ${esc(STATE().legis)}, and some are banned outright.${auth ? ` The state has granted you ${auth} new power${auth > 1 ? "s" : ""}.` : ""}</p>${rows}`);
+    return panel(G.level === "city" ? "New revenue" : "Taxes and new revenue", G.level === "city" ? `<p class="tiny muted">Ways cities raise money without touching the property tax. Cities can only use the powers ${esc(STATE().name)} gives them: some are allowed, some need permission from the governor and ${esc(STATE().legis)}, and some are banned outright.${auth ? ` The state has granted you ${auth} new power${auth > 1 ? "s" : ""}.` : ""}</p>${rows}` : `<p class="tiny muted">Ways ${esc(STATE().name)} can raise money, or give it back. Each needs the ${esc(STATE().legis)}; a few would amend the state constitution and go to the voters, and some don't fit ${esc(STATE().name)} at all. You can also change tax rates when you draft the budget.</p>${rows}`);
 }
 
 function debtPanel(Jx) {
@@ -495,8 +498,8 @@ function viewPlace() {
         return `<div class="driver">${meter(`${METRICS[k].i} ${metricName(k, G.level)}`, Jx.m[k] / 100, true, `${Math.round(Jx.m[k])} → ${Math.round(tg[k])}`)}<p class="tiny muted">${[...pjs, ...laws, ...depts].join(" · ") || "Nothing pushing it yet."}</p></div>`;
     }).join("");
     const areas = G.level === "city" ? CITY().hoods.slice(0, Math.min(CITY().hoods.length, 20)).map((h) => { const p = bodyMembers().find((m) => m.area === h); return `<div class="minister"><span>${esc(h)}</span><span class="tiny">${p ? `${partyDot(p.party)}${esc(p.name)} ${relBadge(p.loyal)}` : ""}</span></div>`; }).join("")
-        : G.level === "state" ? STATE().cities.concat([CITY().name]).map((c) => `<div class="minister"><span>${esc(c)}</span></div>`).join("") : Object.keys(STATES).map((s) => `<span class="badge">${s}</span>`).join(" ");
-    return `<div class="cols2"><div>${grantsPanel(Jx)}${panel("What's moving conditions", drivers)}</div><div>${panel(G.level === "city" ? "Neighborhoods and their members" : G.level === "state" ? "Cities" : "States", areas)}${G.level === "city" ? panel("Hazards", CITY().hazards.map((h) => `<span class="badge">${h}</span>`).join(" ")) : ""}</div></div>`;
+        : G.level === "state" ? mayorsList() : Object.keys(STATES).map((s) => `<span class="badge">${s}</span>`).join(" ");
+    return `<div class="cols2"><div>${grantsPanel(Jx)}${panel("What's moving conditions", drivers)}</div><div>${panel(G.level === "city" ? "Neighborhoods and their members" : G.level === "state" ? "Cities and their mayors" : "States", areas)}${G.level === "city" ? panel("Hazards", CITY().hazards.map((h) => `<span class="badge">${h}</span>`).join(" ")) : ""}</div></div>`;
 }
 
 // ── Power ───────────────────────────────────────────────────────────
@@ -578,4 +581,9 @@ function grantRow(m) {
     const Gp = GRANT_PROGRAMS[k], w = grantWait(k), pend = (G.grantApps || []).some((a) => a.type === k && a.lvl === G.level);
     const pj = (J().projects || []).filter((p) => p.type === k && G.t < p.done).length;
     return `<div class="row small" style="margin:4px 0"><span style="flex:1">🏛️ <b>Federal ${esc(Gp.n.toLowerCase())} grant</b> <span class="tiny muted">${pend ? "application pending" : w ? `next round in ${w} weeks` : `odds about ${Math.round(grantOdds(k) * 100)}%`}${pj ? ` · ${pj} project${pj > 1 ? "s" : ""} under construction` : ""}</span></span><button class="mini" data-act="applyGrant" data-k="${k}" ${G.capital < 3 || w || pend ? "disabled" : ""}>Apply (3)</button></div>`;
+}
+
+function mayorsList() {
+    if (!G.mayors) makeMayors();
+    return `<p class="tiny muted">Mayors can make you look good or bad. Send aid and they'll thank you on TV; pick fights and rural voters cheer while the cities fume.</p>` + G.mayors.map((my) => `<div class="minister"><span>${partyDot(my.party)}<b>${esc(my.city)}</b>: Mayor ${esc(my.name)} ${relBadge(Math.round(my.rel))}${my.note ? ` <span class="tiny muted">(${esc(my.note)})</span>` : ""}</span><span><button class="mini" data-act="mayorAid" data-id="${my.id}" ${G.capital < 2 ? "disabled" : ""}>💵 Send aid (2)</button><button class="mini" data-act="mayorFight" data-id="${my.id}" ${G.capital < 1 ? "disabled" : ""}>📢 Call out (1)</button></span></div>`).join("");
 }
